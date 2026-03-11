@@ -74,7 +74,7 @@ class Daemon:
             )
             self._send(
                 chat_id,
-                "当前任务仍在执行，请等待完成或发送 /stop 终止。",
+                "A task is already running. Wait for it to finish or send /stop to cancel.",
             )
             return
 
@@ -144,7 +144,7 @@ class Daemon:
 
             # Determine effective cwd
             cwd = chat_state.cwd or self._runner.work_dir
-            task_name = chat_state.active_task_name or "未命名任务"
+            task_name = chat_state.active_task_name or "untitled"
 
             # --- Phase 1: start notification ---
             self._send(
@@ -203,7 +203,7 @@ class Daemon:
                 msg = formatter.format_done(result.summary, result.exit_code, raw_output_path)
             else:
                 msg = formatter.format_error(
-                    result.summary or result.stderr[:500] or "(无错误信息)",
+                    result.summary or result.stderr[:500] or "(no error output)",
                     result.exit_code,
                 )
 

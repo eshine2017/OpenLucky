@@ -75,21 +75,21 @@ class CommandRouter:
             return "No active session. Send a message to start."
 
         lines = [
-            f"状态: {state.status.value if state.status else 'idle'}",
-            f"任务: {state.active_task_name or '(无)'}",
-            f"目录: {state.cwd or '(未设置)'}",
-            f"会话: {state.active_session_id or '(无)'}",
-            f"最后活跃: {state.last_active_at or '(从未)'}",
+            f"Status: {state.status.value if state.status else 'idle'}",
+            f"Task: {state.active_task_name or '(none)'}",
+            f"Dir: {state.cwd or '(not set)'}",
+            f"Session: {state.active_session_id or '(none)'}",
+            f"Last active: {state.last_active_at or '(never)'}",
         ]
         if state.last_summary:
-            lines.append(f"\n上次摘要:\n{state.last_summary[:500]}")
+            lines.append(f"\nLast summary:\n{state.last_summary[:500]}")
 
         return "\n".join(lines)
 
     def _handle_stop(self, chat_id: str, runner) -> str:
         active_job = self._db.get_active_job(chat_id)
         if active_job is None:
-            return "当前没有正在运行的任务。"
+            return "No task is currently running."
 
         logger.info("Canceling job %s for chat %s", active_job.job_id, chat_id)
 
@@ -107,7 +107,7 @@ class CommandRouter:
             state.status = ChatStatus.idle
             self._db.upsert_chat(state)
 
-        return f"已终止任务 {active_job.job_id[:8]}…"
+        return f"Canceled job {active_job.job_id[:8]}..."
 
     def _handle_new(self, chat_id: str) -> str:
         state = self._db.get_chat(chat_id)
@@ -116,28 +116,28 @@ class CommandRouter:
 
         state.force_new_next = True
         self._db.upsert_chat(state)
-        return "下一条消息将开启新会话。"
+        return "Next message will start a new session."
 
     def _handle_reset(self, chat_id: str) -> str:
         state = self._db.get_chat(chat_id)
         if state is None:
-            return "没有活跃的会话需要重置。"
+            return "No active session to reset."
 
         old_session = state.active_session_id
         state.active_session_id = None
         self._db.upsert_chat(state)
 
         if old_session:
-            return f"已清除会话绑定 ({old_session[:8]}…)。历史记录已保留。"
-        return "没有绑定的会话。"
+            return f"Session cleared ({old_session[:8]}...). History preserved."
+        return "No session was bound."
 
     def _handle_cwd(self, chat_id: str, path: str) -> str:
         if not path:
-            return "用法: /cwd <绝对路径>"
+            return "Usage: /cwd <absolute path>"
 
         path = path.strip()
         if not os.path.isabs(path):
-            return f"请使用绝对路径。收到: {path!r}"
+            return f"Please use an absolute path. Got: {path!r}"
 
         state = self._db.get_chat(chat_id)
         if state is None:
@@ -148,14 +148,14 @@ class CommandRouter:
         state.force_new_next = True  # changing cwd forces new session
         self._db.upsert_chat(state)
 
-        msg = f"工作目录已更改: {old_cwd or '(未设置)'} → {path}\n下一条消息将开启新会话。"
+        msg = f"Working dir changed: {old_cwd or '(not set)'} -> {path}\nNext message will start a new session."
         if not os.path.isdir(path):
-            msg += f"\n⚠️  警告: 目录 {path!r} 当前不存在。"
+            msg += f"\n⚠️  Warning: {path!r} does not exist."
         return msg
 
     def _handle_task(self, chat_id: str, name: str) -> str:
         if not name:
-            return "用法: /task <任务名称>"
+            return "Usage: /task <name>"
 
         state = self._db.get_chat(chat_id)
         if state is None:
@@ -165,4 +165,4 @@ class CommandRouter:
         state.active_task_name = name.strip()
         self._db.upsert_chat(state)
 
-        return f"任务名称已设置: {old_name or '(无)'} → {state.active_task_name}"
+        return f"Task name set: {old_name or '(none)'} -> {state.active_task_name}"
