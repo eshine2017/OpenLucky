@@ -102,6 +102,8 @@ claude -p "<prompt>" --output-format stream-json --verbose --resume <session_id>
 
 `--verbose` is required when combining `-p` with `--output-format stream-json`, otherwise Claude exits with code 1.
 
+**Important:** `claude_bin` in settings must be an absolute path (e.g. `/home/user/.local/bin/claude`). systemd runs with a minimal PATH and won't find `claude` by name alone.
+
 Session ID is parsed from the `{"type": "result", "session_id": "..."}` line in stdout.
 
 ## Command Protocol

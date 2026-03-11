@@ -1,6 +1,6 @@
 telegram_bot_token: "YOUR_BOT_TOKEN_HERE"
 allowed_users: []   # list of telegram user IDs (integers); empty = no restriction
 work_dir: "/tmp/openlucky_work"
-claude_bin: "claude"
+claude_bin: "/home/you/.local/bin/claude"  # use absolute path for systemd
 session_timeout_minutes: 30
 log_level: "INFO"
