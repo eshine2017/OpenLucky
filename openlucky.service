@@ -1,0 +1,16 @@
+[Unit]
+Description=openlucky Telegram Claude Code daemon
+After=network.target
+
+[Service]
+Type=simple
+User=eshine
+WorkingDirectory=/home/eshine/github/openlucky
+ExecStart=/home/eshine/github/openlucky/.venv/bin/python3 -m app.main
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
