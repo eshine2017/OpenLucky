@@ -8,6 +8,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Language: **Python**
 
+## Running the Service
+
+**Production** (systemd):
+```bash
+sudo cp openlucky.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable openlucky
+sudo systemctl start openlucky
+sudo journalctl -u openlucky -f   # follow logs
+```
+
+**Dev** (foreground):
+```bash
+source .venv/bin/activate
+CONFIG_FILE=config/settings.dev.yaml python3 -m app.main
+```
+
+## Dev vs Prod
+
+Two separate bots and data directories to avoid conflicts:
+
+| | Prod | Dev |
+|---|---|---|
+| Config | `config/settings.yaml` | `config/settings.dev.yaml` |
+| Data | `data/` | `data-dev/` |
+| Bot | prod bot token | dev bot token |
+
+`CONFIG_FILE` env var selects the config. `data_dir` in the yaml controls where DB and logs are stored. Both files are gitignored — use the `.example` files as templates.
+
 ## Architecture
 
 ```
@@ -49,59 +78,31 @@ app/
   daemon.py           # job lifecycle orchestration
   db.py               # SQLite init and CRUD
   models.py           # dataclasses: Job, ChatState, RunResult
-data/
-  app.db
-  logs/
-  jobs/               # raw output files per job
+  config.py           # loads settings.yaml, respects CONFIG_FILE env var
+  formatter.py        # Telegram message formatting
 config/
-  settings.yaml       # TELEGRAM_BOT_TOKEN, ALLOWED_USERS, WORK_DIR, CLAUDE_BIN
+  settings.yaml           # prod config (gitignored)
+  settings.yaml.example   # template
+  settings.dev.yaml       # dev config (gitignored)
+  settings.dev.yaml.example
+data/                 # prod runtime state (gitignored)
+data-dev/             # dev runtime state (gitignored)
+openlucky.service     # systemd unit file
 ```
 
-## Database Schema (SQLite)
+## Claude Code Integration
 
-```sql
-CREATE TABLE chats (
-  telegram_chat_id TEXT PRIMARY KEY,
-  active_session_id TEXT,
-  active_task_name TEXT,
-  cwd TEXT,
-  status TEXT,          -- idle / running / error
-  last_active_at TEXT,
-  last_summary TEXT
-);
+`claude_runner.py` has exactly one responsibility: build the command, spawn the subprocess, collect output, parse `session_id`. It knows nothing about Telegram or the database.
 
-CREATE TABLE jobs (
-  job_id TEXT PRIMARY KEY,
-  telegram_chat_id TEXT,
-  session_id TEXT,
-  user_message TEXT,
-  status TEXT,          -- queued / running / done / failed / canceled
-  started_at TEXT,
-  finished_at TEXT,
-  exit_code INTEGER,
-  result_summary TEXT,
-  raw_output_path TEXT
-);
-
-CREATE TABLE session_history (
-  session_id TEXT PRIMARY KEY,
-  telegram_chat_id TEXT,
-  task_name TEXT,
-  cwd TEXT,
-  created_at TEXT,
-  last_active_at TEXT,
-  is_archived INTEGER
-);
+Invoke Claude Code with:
+```
+claude -p "<prompt>" --output-format stream-json --verbose
+claude -p "<prompt>" --output-format stream-json --verbose --resume <session_id>
 ```
 
-## In-Memory State
+`--verbose` is required when combining `-p` with `--output-format stream-json`, otherwise Claude exits with code 1.
 
-```python
-running_locks: dict[str, str]   # chat_id → job_id
-live_processes: dict[str, Process]  # job_id → subprocess
-```
-
-One chat = one running job at a time. If a new message arrives while a job is running, reject it with a prompt to `/stop`.
+Session ID is parsed from the `{"type": "result", "session_id": "..."}` line in stdout.
 
 ## Command Protocol
 
@@ -121,43 +122,14 @@ Control commands (handled by `command_router`, never sent to Claude Code):
 Resume current session when **all** conditions are met:
 - `active_session_id` exists
 - Last activity < 30 minutes ago
-- `cwd` unchanged
 - No `/new` flag set
 - Message looks like a follow-up (keywords: 继续, 刚才, 再试, continue, fix this too, run again, etc.)
 
 Otherwise: new session.
 
-## Claude Code Integration
+## Debugging
 
-`claude_runner.py` has exactly one responsibility: build the command, spawn the subprocess, collect output, parse `session_id`. It knows nothing about Telegram or the database.
-
-```python
-@dataclass
-class RunResult:
-    session_id: str
-    stdout: str
-    stderr: str
-    exit_code: int
-    summary: str
-
-class ClaudeRunner:
-    def run_new(self, prompt: str, cwd: str) -> RunResult: ...
-    def run_resume(self, session_id: str, prompt: str, cwd: str) -> RunResult: ...
-```
-
-Invoke Claude Code with:
-```
-claude -p "<prompt>" --output-format stream-json
-claude -p "<prompt>" --output-format stream-json --resume <session_id>
-```
-
-## Result Format Sent to Telegram
-
-Do **not** send full stdout. Three-phase response:
-
-1. **Start**: `开始处理: <task_name>\n模式: resume/new\n目录: <cwd>`
-2. **Running**: `正在执行中...`
-3. **Done**: Short summary (3–5 bullet points) + exit code. Full log path if needed.
+Raw output (stdout + stderr) for every job is saved to `data/jobs/<job_id>.log`. Check there first when exit code != 0.
 
 ## MVP Constraints (intentional scope limits)
 
