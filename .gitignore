@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Data (runtime state, logs, DB)
+data/
+
+# Config with secrets
+config/settings.yaml
+
+# Claude Code local settings
+.claude/settings.local.json
