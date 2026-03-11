@@ -8,6 +8,7 @@ data/
 
 # Config with secrets
 config/settings.yaml
+config/settings.dev.yaml
 
 # Claude Code local settings
 .claude/settings.local.json

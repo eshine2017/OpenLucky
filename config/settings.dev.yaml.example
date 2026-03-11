@@ -1,0 +1,7 @@
+telegram_bot_token: "YOUR_DEV_BOT_TOKEN_HERE"
+allowed_users: []
+work_dir: "/tmp/openlucky_work"
+claude_bin: "claude"
+session_timeout_minutes: 30
+log_level: "DEBUG"
+data_dir: "data-dev"   # separate DB and logs from prod
