@@ -10,10 +10,11 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
-from app import db, formatter
+from app import formatter
 from app.claude_runner import ClaudeRunner
 from app.models import ChatState, ChatStatus, Job, JobStatus, SessionDecision
 from app.session_manager import SessionManager
@@ -29,7 +30,7 @@ class Daemon:
 
     def __init__(
         self,
-        db_module,
+        db_module: Any,
         runner: ClaudeRunner,
         session_manager: SessionManager,
         send_message_fn: Callable[[str, str], None],
@@ -69,9 +70,7 @@ class Daemon:
             active_job_id = self.running_locks.get(chat_id)
 
         if active_job_id:
-            logger.info(
-                "Chat %s is busy (job=%s); rejecting new message", chat_id, active_job_id
-            )
+            logger.info("Chat %s is busy (job=%s); rejecting new message", chat_id, active_job_id)
             self._send(
                 chat_id,
                 "A task is already running. Wait for it to finish or send /stop to cancel.",
@@ -135,7 +134,7 @@ class Daemon:
         try:
             # Mark job as running
             job.status = JobStatus.running
-            job.started_at = datetime.now(timezone.utc).isoformat()
+            job.started_at = datetime.now(UTC).isoformat()
             self._db.update_job(job)
 
             # Update chat status
@@ -176,7 +175,7 @@ class Daemon:
             # Update job record
             job.session_id = result.session_id
             job.status = JobStatus.done if result.exit_code == 0 else JobStatus.failed
-            job.finished_at = datetime.now(timezone.utc).isoformat()
+            job.finished_at = datetime.now(UTC).isoformat()
             job.exit_code = result.exit_code
             job.result_summary = result.summary
             job.raw_output_path = raw_output_path
@@ -214,7 +213,7 @@ class Daemon:
 
             try:
                 job.status = JobStatus.failed
-                job.finished_at = datetime.now(timezone.utc).isoformat()
+                job.finished_at = datetime.now(UTC).isoformat()
                 job.exit_code = -1
                 job.result_summary = str(exc)
                 self._db.update_job(job)
@@ -224,9 +223,7 @@ class Daemon:
 
                 self._send(
                     chat_id,
-                    formatter.truncate_for_telegram(
-                        formatter.format_error(str(exc), -1)
-                    ),
+                    formatter.truncate_for_telegram(formatter.format_error(str(exc), -1)),
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to update db/Telegram after job error")

@@ -13,20 +13,21 @@ import asyncio
 import logging
 import os
 import sys
+from typing import Any
 
 # Ensure the project root is on sys.path when running as a script.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from telegram.ext import ApplicationBuilder, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E402
 
-from app import config, db
-from app.claude_runner import ClaudeRunner
-from app.command_router import CommandRouter
-from app.daemon import Daemon
-from app.session_manager import SessionManager
-from app.telegram_bot import TelegramBot
+from app import config, db  # noqa: E402
+from app.claude_runner import ClaudeRunner  # noqa: E402
+from app.command_router import CommandRouter  # noqa: E402
+from app.daemon import Daemon  # noqa: E402
+from app.session_manager import SessionManager  # noqa: E402
+from app.telegram_bot import TelegramBot  # noqa: E402
 
 
 def _configure_logging(level: str) -> None:
@@ -77,9 +78,7 @@ def main() -> None:
 
     def send_message(chat_id: str, text: str) -> None:
         if not _loop_ref:
-            logger.warning(
-                "send_message called before event loop is ready (chat=%s)", chat_id
-            )
+            logger.warning("send_message called before event loop is ready (chat=%s)", chat_id)
             return
 
         loop = _loop_ref[0]
@@ -90,7 +89,7 @@ def main() -> None:
         future = asyncio.run_coroutine_threadsafe(_send(), loop)
         try:
             future.result(timeout=15)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("send_message timed out for chat %s", chat_id)
         except Exception as exc:  # noqa: BLE001
             logger.error("send_message failed for chat %s: %s", chat_id, exc)
@@ -98,16 +97,11 @@ def main() -> None:
     # 5. Build the Telegram Application with a post_init hook that captures
     #    the running event loop once PTB has started it.
 
-    async def _post_init(app) -> None:
+    async def _post_init(app: Any) -> None:
         _loop_ref.append(asyncio.get_running_loop())
         logger.info("Event loop captured; bot is ready.")
 
-    tg_app = (
-        ApplicationBuilder()
-        .token(settings.telegram_bot_token)
-        .post_init(_post_init)
-        .build()
-    )
+    tg_app = ApplicationBuilder().token(settings.telegram_bot_token).post_init(_post_init).build()
 
     # 6. Create Daemon and TelegramBot.
     daemon = Daemon(

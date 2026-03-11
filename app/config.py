@@ -15,7 +15,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List
 
 import yaml
 
@@ -36,7 +35,7 @@ def _resolve_config_path() -> str:
 @dataclass
 class Settings:
     telegram_bot_token: str
-    allowed_users: List[int] = field(default_factory=list)
+    allowed_users: list[int] = field(default_factory=list)
     work_dir: str = "/tmp/openlucky_work"
     claude_bin: str = "claude"
     session_timeout_minutes: int = 30
@@ -69,7 +68,7 @@ class Settings:
 def load() -> Settings:
     """Read the config file and return a Settings instance."""
     config_path = _resolve_config_path()
-    with open(config_path, "r", encoding="utf-8") as fh:
+    with open(config_path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
 
     settings = Settings(

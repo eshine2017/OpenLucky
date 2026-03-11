@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from app.models import ChatState, ChatStatus, JobStatus
 
@@ -19,7 +19,7 @@ _COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task"}
 
 
 class CommandRouter:
-    def __init__(self, db, session_manager) -> None:
+    def __init__(self, db: Any, session_manager: Any) -> None:
         self._db = db
         self._session_manager = session_manager
 
@@ -34,7 +34,7 @@ class CommandRouter:
         first_word = text.split()[0].lower()
         return first_word in _COMMANDS
 
-    def handle(self, chat_id: str, text: str, runner) -> str:
+    def handle(self, chat_id: str, text: str, runner: Any) -> str:
         """
         Dispatch the command and return a human-readable response string.
 
@@ -86,7 +86,7 @@ class CommandRouter:
 
         return "\n".join(lines)
 
-    def _handle_stop(self, chat_id: str, runner) -> str:
+    def _handle_stop(self, chat_id: str, runner: Any) -> str:
         active_job = self._db.get_active_job(chat_id)
         if active_job is None:
             return "No task is currently running."
@@ -98,7 +98,7 @@ class CommandRouter:
 
         # Update job status
         active_job.status = JobStatus.canceled
-        active_job.finished_at = datetime.now(timezone.utc).isoformat()
+        active_job.finished_at = datetime.now(UTC).isoformat()
         self._db.update_job(active_job)
 
         # Update chat status
@@ -148,7 +148,10 @@ class CommandRouter:
         state.force_new_next = True  # changing cwd forces new session
         self._db.upsert_chat(state)
 
-        msg = f"Working dir changed: {old_cwd or '(not set)'} -> {path}\nNext message will start a new session."
+        msg = (
+            f"Working dir changed: {old_cwd or '(not set)'} -> {path}\n"
+            "Next message will start a new session."
+        )
         if not os.path.isdir(path):
             msg += f"\n⚠️  Warning: {path!r} does not exist."
         return msg

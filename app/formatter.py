@@ -9,11 +9,7 @@ _TELEGRAM_MAX = 4096
 
 def format_start(task_name: str, mode: str, cwd: str) -> str:
     """Message sent when a job begins."""
-    return (
-        f"🚀 Starting: {task_name}\n"
-        f"Mode: {mode}\n"
-        f"Dir: {cwd}"
-    )
+    return f"🚀 Starting: {task_name}\nMode: {mode}\nDir: {cwd}"
 
 
 def format_running() -> str:
@@ -23,21 +19,12 @@ def format_running() -> str:
 
 def format_done(summary: str, exit_code: int, log_path: str) -> str:
     """Message sent when a job finishes successfully."""
-    return (
-        f"✅ Done\n\n"
-        f"{summary}\n\n"
-        f"Exit code: {exit_code}\n"
-        f"Log: {log_path}"
-    )
+    return f"✅ Done\n\n{summary}\n\nExit code: {exit_code}\nLog: {log_path}"
 
 
 def format_error(error: str, exit_code: int) -> str:
     """Message sent when a job fails."""
-    return (
-        f"❌ Failed\n\n"
-        f"{error}\n\n"
-        f"Exit code: {exit_code}"
-    )
+    return f"❌ Failed\n\n{error}\n\nExit code: {exit_code}"
 
 
 def truncate_for_telegram(text: str, max_length: int = 4000) -> str:

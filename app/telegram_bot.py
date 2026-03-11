@@ -5,7 +5,7 @@ telegram_bot.py — Telegram long-polling bot using python-telegram-bot v20 (asy
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Any
 
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -25,10 +25,10 @@ class TelegramBot:
     def __init__(
         self,
         token: str,
-        allowed_users: List[int],
+        allowed_users: list[int],
         daemon: Daemon,
         command_router: CommandRouter,
-        runner,
+        runner: Any,
     ) -> None:
         self._token = token
         self._allowed_users = allowed_users
@@ -44,11 +44,9 @@ class TelegramBot:
     async def start(self) -> None:
         """Build the Application and start long-polling (blocks until stopped)."""
         self._app = ApplicationBuilder().token(self._token).build()
-        self._app.add_handler(
-            MessageHandler(filters.TEXT, self._on_text_message)
-        )
+        self._app.add_handler(MessageHandler(filters.TEXT, self._on_text_message))
         logger.info("Starting Telegram bot (long-polling)…")
-        await self._app.run_polling(drop_pending_updates=True)
+        await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value]
 
     def get_application(self) -> Application:
         """Return the underlying Application (needed to send messages from threads)."""
@@ -60,19 +58,15 @@ class TelegramBot:
     # Message handler
     # ------------------------------------------------------------------
 
-    async def _on_text_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def _on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.message is None or update.effective_user is None:
             return
 
         user_id = update.effective_user.id
-        chat_id = str(update.effective_chat.id)
+        chat_id = str(update.effective_chat.id)  # type: ignore[union-attr]
         text = update.message.text or ""
 
-        logger.info(
-            "Message from user %d (chat=%s): %r", user_id, chat_id, text[:80]
-        )
+        logger.info("Message from user %d (chat=%s): %r", user_id, chat_id, text[:80])
 
         # Authorization check
         if self._allowed_users and user_id not in self._allowed_users:

@@ -6,6 +6,7 @@ This module knows nothing about Telegram or the database.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -13,7 +14,6 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Optional
 
 from app.models import RunResult
 
@@ -44,8 +44,8 @@ class ClaudeRunner:
         self,
         prompt: str,
         cwd: str,
-        session_id: Optional[str] = None,
-        job_id: Optional[str] = None,
+        session_id: str | None = None,
+        job_id: str | None = None,
     ) -> RunResult:
         """
         Run Claude Code with the given prompt.
@@ -132,20 +132,20 @@ class ClaudeRunner:
             time.sleep(0.2)
 
         logger.warning("Process %d did not exit; sending SIGKILL", proc.pid)
-        try:
+        with contextlib.suppress(ProcessLookupError):
             proc.send_signal(signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _build_command(self, prompt: str, session_id: Optional[str]) -> list[str]:
+    def _build_command(self, prompt: str, session_id: str | None) -> list[str]:
         cmd = [
             self.claude_bin,
-            "-p", prompt,
-            "--output-format", "stream-json",
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
             "--verbose",
         ]
         if session_id:

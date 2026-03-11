@@ -127,6 +127,17 @@ Resume current session when **all** conditions are met:
 
 Otherwise: new session.
 
+## Dev Tooling
+
+```bash
+pip install -r requirements-dev.txt
+pytest                    # run all tests
+pytest tests/test_db.py   # run single test file
+ruff check app/ tests/    # lint
+ruff format app/ tests/   # format
+mypy app/                 # type check
+```
+
 ## Debugging
 
 Raw output (stdout + stderr) for every job is saved to `data/jobs/<job_id>.log`. Check there first when exit code != 0.

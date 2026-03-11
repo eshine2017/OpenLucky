@@ -4,18 +4,18 @@ models.py — Dataclasses for openlucky domain objects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 
 
-class ChatStatus(str, Enum):
+class ChatStatus(StrEnum):
     idle = "idle"
     running = "running"
     error = "error"
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     queued = "queued"
     running = "running"
     done = "done"

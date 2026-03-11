@@ -5,8 +5,8 @@ session_manager.py — Decide whether to start a new Claude session or resume an
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from app.models import ChatState, SessionDecision
 
@@ -38,13 +38,13 @@ NEW_TASK_KEYWORDS: list[str] = [
 class SessionManager:
     """Determines whether the next job should start a fresh session or resume."""
 
-    def __init__(self, db, timeout_minutes: int = 30) -> None:
+    def __init__(self, db: Any, timeout_minutes: int = 30) -> None:
         self._db = db
         self._timeout_minutes = timeout_minutes
 
     def decide(
         self,
-        chat_state: Optional[ChatState],
+        chat_state: ChatState | None,
         text: str,
         force_new: bool = False,
     ) -> SessionDecision:
@@ -77,9 +77,7 @@ class SessionManager:
             logger.debug("decide: message looks like a new task → new session")
             return SessionDecision(mode="new")
 
-        logger.debug(
-            "decide: resuming session %s", chat_state.active_session_id
-        )
+        logger.debug("decide: resuming session %s", chat_state.active_session_id)
         return SessionDecision(mode="resume", session_id=chat_state.active_session_id)
 
     def message_indicates_new_task(self, text: str) -> bool:
@@ -101,7 +99,7 @@ class SessionManager:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _is_timed_out(self, last_active_at: Optional[str]) -> bool:
+    def _is_timed_out(self, last_active_at: str | None) -> bool:
         if not last_active_at:
             return True
 
@@ -109,8 +107,8 @@ class SessionManager:
             # Handle ISO format strings that may or may not include timezone info
             last = datetime.fromisoformat(last_active_at)
             if last.tzinfo is None:
-                last = last.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
+                last = last.replace(tzinfo=UTC)
+            now = datetime.now(UTC)
             elapsed_minutes = (now - last).total_seconds() / 60
             return elapsed_minutes > self._timeout_minutes
         except (ValueError, TypeError) as exc:

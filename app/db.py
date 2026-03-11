@@ -11,13 +11,13 @@ import logging
 import os
 import sqlite3
 import threading
-from typing import Optional
+from datetime import UTC
 
 from app.models import ChatState, ChatStatus, Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_conn: Optional[sqlite3.Connection] = None
+_conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
 
 
@@ -102,7 +102,8 @@ def init(db_path: str, data_dir: str | None = None) -> None:
 # Chat helpers
 # ---------------------------------------------------------------------------
 
-def get_chat(chat_id: str) -> Optional[ChatState]:
+
+def get_chat(chat_id: str) -> ChatState | None:
     with _lock:
         cur = _get_conn().cursor()
         cur.execute("SELECT * FROM chats WHERE telegram_chat_id = ?", (chat_id,))
@@ -160,6 +161,7 @@ def upsert_chat(state: ChatState) -> None:
 # ---------------------------------------------------------------------------
 # Job helpers
 # ---------------------------------------------------------------------------
+
 
 def create_job(job: Job) -> None:
     with _lock:
@@ -220,7 +222,7 @@ def update_job(job: Job) -> None:
     logger.debug("Updated job %s → status=%s", job.job_id, job.status)
 
 
-def get_job(job_id: str) -> Optional[Job]:
+def get_job(job_id: str) -> Job | None:
     with _lock:
         cur = _get_conn().cursor()
         cur.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
@@ -232,7 +234,7 @@ def get_job(job_id: str) -> Optional[Job]:
     return _row_to_job(row)
 
 
-def get_active_job(chat_id: str) -> Optional[Job]:
+def get_active_job(chat_id: str) -> Job | None:
     """Return the currently running job for a chat, or None."""
     with _lock:
         cur = _get_conn().cursor()
@@ -267,17 +269,19 @@ def _row_to_job(row: sqlite3.Row) -> Job:
 # Session history helpers
 # ---------------------------------------------------------------------------
 
-def archive_session(session_id: str, chat_id: str, task_name: str | None, cwd: str | None) -> None:
-    from datetime import datetime, timezone
 
-    now = datetime.now(timezone.utc).isoformat()
+def archive_session(session_id: str, chat_id: str, task_name: str | None, cwd: str | None) -> None:
+    from datetime import datetime
+
+    now = datetime.now(UTC).isoformat()
 
     with _lock:
         conn = _get_conn()
         conn.execute(
             """
             INSERT INTO session_history
-                (session_id, telegram_chat_id, task_name, cwd, created_at, last_active_at, is_archived)
+                (session_id, telegram_chat_id, task_name, cwd,
+                 created_at, last_active_at, is_archived)
             VALUES (?, ?, ?, ?, ?, ?, 1)
             ON CONFLICT(session_id) DO UPDATE SET
                 last_active_at = excluded.last_active_at,
