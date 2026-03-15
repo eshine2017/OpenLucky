@@ -11,11 +11,11 @@ import os
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 from app import formatter
-from app.claude_runner import ClaudeRunner
 from app.models import ChatState, ChatStatus, Job, JobStatus, SessionDecision
 from app.session_manager import SessionManager
 
@@ -31,25 +31,28 @@ class Daemon:
     def __init__(
         self,
         db_module: Any,
-        runner: ClaudeRunner,
+        agent_registry: dict,
         session_manager: SessionManager,
         send_message_fn: Callable[[str, str], None],
         jobs_dir: str,
+        default_cwd: str = "/tmp/openlucky_work",
     ) -> None:
         """
         Parameters
         ----------
         db_module:        The app.db module (or compatible object with its functions).
-        runner:           ClaudeRunner instance.
+        agent_registry:   Dict mapping agent name → agent instance.
         session_manager:  SessionManager instance.
         send_message_fn:  Callable(chat_id, text) that delivers a message to Telegram.
         jobs_dir:         Directory where raw job output logs are written.
+        default_cwd:      Fallback working directory when chat has none set.
         """
         self._db = db_module
-        self._runner = runner
+        self._agent_registry = agent_registry
         self._session_manager = session_manager
         self._send = send_message_fn
         self._jobs_dir = jobs_dir
+        self._default_cwd = default_cwd
 
         # chat_id → job_id for currently running jobs
         self.running_locks: dict[str, str] = {}
@@ -133,31 +136,38 @@ class Daemon:
 
         try:
             # Mark job as running
-            job.status = JobStatus.running
-            job.started_at = datetime.now(UTC).isoformat()
+            job = replace(job, status=JobStatus.running, started_at=datetime.now(UTC).isoformat())
             self._db.update_job(job)
 
             # Update chat status
-            chat_state.status = ChatStatus.running
+            chat_state = replace(chat_state, status=ChatStatus.running)
             self._db.upsert_chat(chat_state)
 
+            # Resolve the active agent
+            agent_name = chat_state.active_agent or "claude"
+            agent = self._agent_registry.get(agent_name)
+            if agent is None:
+                logger.warning("Unknown agent %r, falling back to 'claude'", agent_name)
+                agent_name = "claude"
+                agent = self._agent_registry["claude"]
+
             # Determine effective cwd
-            cwd = chat_state.cwd or self._runner.work_dir
+            cwd = chat_state.cwd or self._default_cwd
             task_name = chat_state.active_task_name or "untitled"
 
             # --- Phase 1: start notification ---
             self._send(
                 chat_id,
                 formatter.truncate_for_telegram(
-                    formatter.format_start(task_name, decision.mode, cwd)
+                    formatter.format_start(task_name, decision.mode, cwd, agent_name)
                 ),
             )
 
             # --- Phase 2: running notification ---
             self._send(chat_id, formatter.format_running())
 
-            # --- Phase 3: invoke Claude Code ---
-            result = self._runner.run(
+            # --- Phase 3: invoke agent ---
+            result = agent.run(
                 prompt=job.user_message,
                 cwd=cwd,
                 session_id=decision.session_id,
@@ -173,12 +183,15 @@ class Daemon:
                     fh.write(result.stderr)
 
             # Update job record
-            job.session_id = result.session_id
-            job.status = JobStatus.done if result.exit_code == 0 else JobStatus.failed
-            job.finished_at = datetime.now(UTC).isoformat()
-            job.exit_code = result.exit_code
-            job.result_summary = result.summary
-            job.raw_output_path = raw_output_path
+            job = replace(
+                job,
+                session_id=result.session_id,
+                status=JobStatus.done if result.exit_code == 0 else JobStatus.failed,
+                finished_at=datetime.now(UTC).isoformat(),
+                exit_code=result.exit_code,
+                result_summary=result.summary,
+                raw_output_path=raw_output_path,
+            )
             self._db.update_job(job)
 
             # Archive old session if switching to a new one
@@ -191,10 +204,13 @@ class Daemon:
                 )
 
             # Update chat state
-            chat_state.active_session_id = result.session_id or chat_state.active_session_id
-            chat_state.last_active_at = job.finished_at
-            chat_state.last_summary = result.summary
-            chat_state.status = ChatStatus.idle if result.exit_code == 0 else ChatStatus.error
+            chat_state = replace(
+                chat_state,
+                active_session_id=result.session_id or chat_state.active_session_id,
+                last_active_at=job.finished_at,
+                last_summary=result.summary,
+                status=ChatStatus.idle if result.exit_code == 0 else ChatStatus.error,
+            )
             self._db.upsert_chat(chat_state)
 
             # --- Phase 4: result notification ---
@@ -212,13 +228,16 @@ class Daemon:
             logger.exception("Job %s raised an exception: %s", job.job_id, exc)
 
             try:
-                job.status = JobStatus.failed
-                job.finished_at = datetime.now(UTC).isoformat()
-                job.exit_code = -1
-                job.result_summary = str(exc)
+                job = replace(
+                    job,
+                    status=JobStatus.failed,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    exit_code=-1,
+                    result_summary=str(exc),
+                )
                 self._db.update_job(job)
 
-                chat_state.status = ChatStatus.error
+                chat_state = replace(chat_state, status=ChatStatus.error)
                 self._db.upsert_chat(chat_state)
 
                 self._send(

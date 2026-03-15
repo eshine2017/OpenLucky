@@ -15,13 +15,14 @@ from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task"}
+_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task", "/agent"}
 
 
 class CommandRouter:
-    def __init__(self, db: Any, session_manager: Any) -> None:
+    def __init__(self, db: Any, session_manager: Any, agent_registry: dict) -> None:
         self._db = db
         self._session_manager = session_manager
+        self._agent_registry = agent_registry  # name → agent instance
 
     # ------------------------------------------------------------------
     # Public API
@@ -34,7 +35,7 @@ class CommandRouter:
         first_word = text.split()[0].lower()
         return first_word in _COMMANDS
 
-    def handle(self, chat_id: str, text: str, runner: Any) -> str:
+    def handle(self, chat_id: str, text: str) -> str:
         """
         Dispatch the command and return a human-readable response string.
 
@@ -42,7 +43,6 @@ class CommandRouter:
         ----------
         chat_id:  Telegram chat identifier.
         text:     Raw message text (starts with '/').
-        runner:   ClaudeRunner instance (needed by /stop).
         """
         parts = text.strip().split(maxsplit=1)
         cmd = parts[0].lower()
@@ -53,7 +53,7 @@ class CommandRouter:
         if cmd == "/status":
             return self._handle_status(chat_id)
         if cmd == "/stop":
-            return self._handle_stop(chat_id, runner)
+            return self._handle_stop(chat_id)
         if cmd == "/new":
             return self._handle_new(chat_id)
         if cmd == "/reset":
@@ -62,8 +62,10 @@ class CommandRouter:
             return self._handle_cwd(chat_id, arg)
         if cmd == "/task":
             return self._handle_task(chat_id, arg)
+        if cmd == "/agent":
+            return self._handle_agent(chat_id, arg)
 
-        return "Unknown command. Available: /status /stop /new /reset /cwd /task"
+        return "Unknown command. Available: /status /stop /new /reset /cwd /task /agent"
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -86,15 +88,19 @@ class CommandRouter:
 
         return "\n".join(lines)
 
-    def _handle_stop(self, chat_id: str, runner: Any) -> str:
+    def _handle_stop(self, chat_id: str) -> str:
         active_job = self._db.get_active_job(chat_id)
         if active_job is None:
             return "No task is currently running."
 
         logger.info("Canceling job %s for chat %s", active_job.job_id, chat_id)
 
-        # Cancel the subprocess
-        runner.cancel(active_job.job_id)
+        # Cancel via the active agent
+        state = self._db.get_chat(chat_id)
+        agent_name = state.active_agent if state else "claude"
+        agent = self._agent_registry.get(agent_name)
+        if agent is not None:
+            agent.cancel(active_job.job_id)
 
         # Update job status
         active_job.status = JobStatus.canceled
@@ -155,6 +161,29 @@ class CommandRouter:
         if not os.path.isdir(path):
             msg += f"\n⚠️  Warning: {path!r} does not exist."
         return msg
+
+    def _handle_agent(self, chat_id: str, name: str) -> str:
+        available = sorted(self._agent_registry.keys())
+        if not name:
+            state = self._db.get_chat(chat_id)
+            current = state.active_agent if state else "claude"
+            return f"Current agent: {current}\nAvailable: {', '.join(available)}"
+
+        name = name.strip().lower()
+        if name not in self._agent_registry:
+            return f"Unknown agent {name!r}. Available: {', '.join(available)}"
+
+        state = self._db.get_chat(chat_id)
+        if state is None:
+            state = ChatState(telegram_chat_id=chat_id)
+
+        old = state.active_agent
+        state.active_agent = name
+        state.active_session_id = None  # new agent = new session
+        state.force_new_next = True
+        self._db.upsert_chat(state)
+
+        return f"Agent switched: {old} → {name}\nNext message will start a new session."
 
     def _handle_task(self, chat_id: str, name: str) -> str:
         if not name:

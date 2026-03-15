@@ -7,9 +7,9 @@ from __future__ import annotations
 _TELEGRAM_MAX = 4096
 
 
-def format_start(task_name: str, mode: str, cwd: str) -> str:
+def format_start(task_name: str, mode: str, cwd: str, agent: str = "claude") -> str:
     """Message sent when a job begins."""
-    return f"🚀 Starting: {task_name}\nMode: {mode}\nDir: {cwd}"
+    return f"🚀 Starting: {task_name}\nAgent: {agent}\nMode: {mode}\nDir: {cwd}"
 
 
 def format_running() -> str:

@@ -33,6 +33,7 @@ class ChatState:
     last_active_at: str | None = None
     last_summary: str | None = None
     force_new_next: bool = False
+    active_agent: str = "claude"
 
 
 @dataclass

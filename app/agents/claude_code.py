@@ -1,5 +1,5 @@
 """
-claude_runner.py — Spawn Claude Code as a subprocess, collect output, parse results.
+agents/claude_code.py — Agent that wraps the Claude Code CLI subprocess.
 
 This module knows nothing about Telegram or the database.
 """
@@ -20,14 +20,16 @@ from app.models import RunResult
 logger = logging.getLogger(__name__)
 
 
-class ClaudeRunner:
+class ClaudeCodeAgent:
     """
-    Wraps the Claude Code CLI.  One instance is shared across the daemon.
+    Runs Claude Code as a managed subprocess.
 
     Usage:
-        runner = ClaudeRunner(claude_bin="claude", work_dir="/tmp/openlucky_work")
-        result = runner.run(prompt="...", cwd="/some/path", session_id=None)
+        agent = ClaudeCodeAgent(claude_bin="/path/to/claude", work_dir="/tmp/work")
+        result = agent.run(prompt="...", cwd="/some/path")
     """
+
+    name = "claude"
 
     def __init__(self, claude_bin: str, work_dir: str) -> None:
         self.claude_bin = claude_bin
@@ -178,7 +180,6 @@ class ClaudeRunner:
             event_type = obj.get("type", "")
 
             if event_type == "result":
-                # Primary source of session_id and final summary
                 if "session_id" in obj:
                     parsed_session_id = obj["session_id"]
                 result_text = obj.get("result", "")
@@ -186,7 +187,6 @@ class ClaudeRunner:
                     summary_parts.append(result_text)
 
             elif event_type == "assistant":
-                # Accumulate assistant message content for fallback summary
                 message = obj.get("message", {})
                 for block in message.get("content", []):
                     if isinstance(block, dict) and block.get("type") == "text":
@@ -195,12 +195,10 @@ class ClaudeRunner:
         if summary_parts:
             summary = "\n".join(summary_parts)
         elif assistant_text_parts:
-            # Fallback: use the last assistant text block
             summary = assistant_text_parts[-1]
         else:
             summary = "(No summary available)"
 
-        # Trim summary to a reasonable length for Telegram
         if len(summary) > 3000:
             summary = summary[:3000] + "\n… (truncated)"
 

@@ -5,7 +5,6 @@ telegram_bot.py — Telegram long-polling bot using python-telegram-bot v20 (asy
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -28,13 +27,11 @@ class TelegramBot:
         allowed_users: list[int],
         daemon: Daemon,
         command_router: CommandRouter,
-        runner: Any,
     ) -> None:
         self._token = token
         self._allowed_users = allowed_users
         self._daemon = daemon
         self._command_router = command_router
-        self._runner = runner
         self._app: Application | None = None
 
     # ------------------------------------------------------------------
@@ -76,7 +73,7 @@ class TelegramBot:
 
         # Command routing
         if self._command_router.is_command(text):
-            response = self._command_router.handle(chat_id, text, self._runner)
+            response = self._command_router.handle(chat_id, text)
             await update.message.reply_text(response)
             return
 

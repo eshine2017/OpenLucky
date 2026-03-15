@@ -14,13 +14,16 @@ def mock_db():
 
 
 @pytest.fixture()
-def mock_runner():
-    return MagicMock()
+def mock_claude_agent():
+    agent = MagicMock()
+    agent.name = "claude"
+    return agent
 
 
 @pytest.fixture()
-def router(mock_db):
-    return CommandRouter(db=mock_db, session_manager=MagicMock())
+def router(mock_db, mock_claude_agent):
+    registry = {"claude": mock_claude_agent}
+    return CommandRouter(db=mock_db, session_manager=MagicMock(), agent_registry=registry)
 
 
 class TestIsCommand:
@@ -31,6 +34,7 @@ class TestIsCommand:
         assert router.is_command("/reset") is True
         assert router.is_command("/cwd /tmp") is True
         assert router.is_command("/task build") is True
+        assert router.is_command("/agent simple") is True
 
     def test_unknown_command(self, router) -> None:
         assert router.is_command("/unknown") is False
@@ -45,12 +49,12 @@ class TestIsCommand:
 
 
 class TestHandleStatus:
-    def test_no_session(self, router, mock_db, mock_runner) -> None:
+    def test_no_session(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = None
-        result = router.handle("1", "/status", mock_runner)
+        result = router.handle("1", "/status")
         assert "No active session" in result
 
-    def test_with_session(self, router, mock_db, mock_runner) -> None:
+    def test_with_session(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = ChatState(
             telegram_chat_id="1",
             active_session_id="s1",
@@ -59,7 +63,7 @@ class TestHandleStatus:
             status=ChatStatus.running,
             last_active_at="2025-01-01T00:00:00Z",
         )
-        result = router.handle("1", "/status", mock_runner)
+        result = router.handle("1", "/status")
         assert "running" in result
         assert "build" in result
         assert "/tmp" in result
@@ -67,70 +71,70 @@ class TestHandleStatus:
 
 
 class TestHandleStop:
-    def test_no_active_job(self, router, mock_db, mock_runner) -> None:
+    def test_no_active_job(self, router, mock_db) -> None:
         mock_db.get_active_job.return_value = None
-        result = router.handle("1", "/stop", mock_runner)
+        result = router.handle("1", "/stop")
         assert "No task is currently running" in result
 
-    def test_cancel_active_job(self, router, mock_db, mock_runner) -> None:
+    def test_cancel_active_job(self, router, mock_db, mock_claude_agent) -> None:
         job = Job(job_id="j1-abcdef", telegram_chat_id="1", status=JobStatus.running)
         mock_db.get_active_job.return_value = job
         mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", status=ChatStatus.running)
 
-        result = router.handle("1", "/stop", mock_runner)
+        result = router.handle("1", "/stop")
         assert "Canceled" in result
-        mock_runner.cancel.assert_called_once_with("j1-abcdef")
+        mock_claude_agent.cancel.assert_called_once_with("j1-abcdef")
         mock_db.update_job.assert_called_once()
         mock_db.upsert_chat.assert_called_once()
 
 
 class TestHandleNew:
-    def test_sets_force_new(self, router, mock_db, mock_runner) -> None:
+    def test_sets_force_new(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
-        result = router.handle("1", "/new", mock_runner)
+        result = router.handle("1", "/new")
         assert "new session" in result
         mock_db.upsert_chat.assert_called_once()
         saved = mock_db.upsert_chat.call_args[0][0]
         assert saved.force_new_next is True
 
-    def test_no_existing_chat(self, router, mock_db, mock_runner) -> None:
+    def test_no_existing_chat(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = None
-        result = router.handle("1", "/new", mock_runner)
+        result = router.handle("1", "/new")
         assert "new session" in result
 
 
 class TestHandleReset:
-    def test_no_session(self, router, mock_db, mock_runner) -> None:
+    def test_no_session(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = None
-        result = router.handle("1", "/reset", mock_runner)
+        result = router.handle("1", "/reset")
         assert "No active session" in result
 
-    def test_clear_session(self, router, mock_db, mock_runner) -> None:
+    def test_clear_session(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = ChatState(
             telegram_chat_id="1", active_session_id="s1-abcdef"
         )
-        result = router.handle("1", "/reset", mock_runner)
+        result = router.handle("1", "/reset")
         assert "cleared" in result.lower()
         mock_db.upsert_chat.assert_called_once()
 
-    def test_no_bound_session(self, router, mock_db, mock_runner) -> None:
+    def test_no_bound_session(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", active_session_id=None)
-        result = router.handle("1", "/reset", mock_runner)
+        result = router.handle("1", "/reset")
         assert "No session was bound" in result
 
 
 class TestHandleCwd:
-    def test_no_path(self, router, mock_db, mock_runner) -> None:
-        result = router.handle("1", "/cwd", mock_runner)
+    def test_no_path(self, router, mock_db) -> None:
+        result = router.handle("1", "/cwd")
         assert "Usage" in result
 
-    def test_relative_path(self, router, mock_db, mock_runner) -> None:
-        result = router.handle("1", "/cwd relative/path", mock_runner)
+    def test_relative_path(self, router, mock_db) -> None:
+        result = router.handle("1", "/cwd relative/path")
         assert "absolute path" in result
 
-    def test_valid_path(self, router, mock_db, mock_runner, tmp_path) -> None:
+    def test_valid_path(self, router, mock_db, tmp_path) -> None:
         mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", cwd="/old")
-        result = router.handle("1", f"/cwd {tmp_path}", mock_runner)
+        result = router.handle("1", f"/cwd {tmp_path}")
         assert "changed" in result.lower()
         saved = mock_db.upsert_chat.call_args[0][0]
         assert saved.cwd == str(tmp_path)
@@ -138,13 +142,13 @@ class TestHandleCwd:
 
 
 class TestHandleTask:
-    def test_no_name(self, router, mock_db, mock_runner) -> None:
-        result = router.handle("1", "/task", mock_runner)
+    def test_no_name(self, router, mock_db) -> None:
+        result = router.handle("1", "/task")
         assert "Usage" in result
 
-    def test_set_name(self, router, mock_db, mock_runner) -> None:
+    def test_set_name(self, router, mock_db) -> None:
         mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", active_task_name="old")
-        result = router.handle("1", "/task new-task", mock_runner)
+        result = router.handle("1", "/task new-task")
         assert "new-task" in result
         saved = mock_db.upsert_chat.call_args[0][0]
         assert saved.active_task_name == "new-task"

@@ -43,10 +43,17 @@ class Settings:
     # data_dir: where DB, jobs/, logs/ live. Defaults to data/ in project root.
     # Set this in settings.yaml to separate prod and dev data.
     data_dir: str = ""
+    # OpenAI (simple agent)
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
 
     @property
     def _effective_data_dir(self) -> str:
         return self.data_dir if self.data_dir else os.path.join(_PROJECT_ROOT, "data")
+
+    @property
+    def sessions_dir(self) -> str:
+        return os.path.join(self._effective_data_dir, "sessions")
 
     @property
     def db_path(self) -> str:
@@ -79,6 +86,8 @@ def load() -> Settings:
         session_timeout_minutes=int(raw.get("session_timeout_minutes", 30)),
         log_level=raw.get("log_level", "INFO"),
         data_dir=raw.get("data_dir", ""),
+        openai_api_key=raw.get("openai_api_key", ""),
+        openai_model=raw.get("openai_model", "gpt-4o-mini"),
     )
 
     logger.debug("Settings loaded from %s", config_path)

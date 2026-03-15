@@ -23,7 +23,8 @@ if _PROJECT_ROOT not in sys.path:
 from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E402
 
 from app import config, db  # noqa: E402
-from app.claude_runner import ClaudeRunner  # noqa: E402
+from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
+from app.agents.openai_agent import OpenAIAgent  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
 from app.session_manager import SessionManager  # noqa: E402
@@ -48,15 +49,24 @@ def main() -> None:
     logger.info("openlucky starting up…")
 
     # 2. Initialise database (also creates data/jobs and data/logs)
-    data_dir = os.path.join(settings.project_root, "data")
-    os.makedirs(data_dir, exist_ok=True)
-    db.init(settings.db_path, data_dir=data_dir)
+    db.init(settings.db_path, data_dir=settings._effective_data_dir)
 
     # 3. Create domain objects
-    runner = ClaudeRunner(
+    claude_agent = ClaudeCodeAgent(
         claude_bin=settings.claude_bin,
         work_dir=settings.work_dir,
     )
+
+    openai_agent = OpenAIAgent(
+        api_key=settings.openai_api_key,
+        model=settings.openai_model,
+        sessions_dir=settings.sessions_dir,
+    )
+
+    agent_registry = {
+        claude_agent.name: claude_agent,
+        openai_agent.name: openai_agent,
+    }
 
     session_manager = SessionManager(
         db=db,
@@ -66,6 +76,7 @@ def main() -> None:
     command_router = CommandRouter(
         db=db,
         session_manager=session_manager,
+        agent_registry=agent_registry,
     )
 
     # 4. Thread-safe send_message callback for the Daemon.
@@ -106,10 +117,11 @@ def main() -> None:
     # 6. Create Daemon and TelegramBot.
     daemon = Daemon(
         db_module=db,
-        runner=runner,
+        agent_registry=agent_registry,
         session_manager=session_manager,
         send_message_fn=send_message,
         jobs_dir=settings.jobs_dir,
+        default_cwd=settings.work_dir,
     )
 
     bot = TelegramBot(
@@ -117,7 +129,6 @@ def main() -> None:
         allowed_users=settings.allowed_users,
         daemon=daemon,
         command_router=command_router,
-        runner=runner,
     )
     bot._app = tg_app  # type: ignore[attr-defined]
     tg_app.add_handler(MessageHandler(filters.TEXT, bot._on_text_message))
