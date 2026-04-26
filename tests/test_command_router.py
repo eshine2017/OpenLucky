@@ -22,8 +22,7 @@ def mock_claude_agent():
 
 @pytest.fixture()
 def router(mock_db, mock_claude_agent):
-    registry = {"claude": mock_claude_agent}
-    return CommandRouter(db=mock_db, session_manager=MagicMock(), agent_registry=registry)
+    return CommandRouter(db=mock_db, agent=mock_claude_agent)
 
 
 class TestIsCommand:
@@ -34,7 +33,6 @@ class TestIsCommand:
         assert router.is_command("/reset") is True
         assert router.is_command("/cwd /tmp") is True
         assert router.is_command("/task build") is True
-        assert router.is_command("/agent simple") is True
 
     def test_unknown_command(self, router) -> None:
         assert router.is_command("/unknown") is False

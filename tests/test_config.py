@@ -29,8 +29,6 @@ def minimal_yaml(tmp_path):
         "session_timeout_minutes": 45,
         "log_level": "DEBUG",
         "data_dir": str(tmp_path / "data"),
-        "openai_api_key": "sk-test",
-        "openai_model": "gpt-4o",
     }
     config_path = tmp_path / "settings.yaml"
     config_path.write_text(yaml.dump(settings), encoding="utf-8")
@@ -58,8 +56,6 @@ class TestLoad:
         assert settings.session_timeout_minutes == 45
         assert settings.log_level == "DEBUG"
         assert settings.data_dir == str(tmp_path / "data")
-        assert settings.openai_api_key == "sk-test"
-        assert settings.openai_model == "gpt-4o"
 
     def test_defaults_when_keys_missing(self, minimal_yaml_bare, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", minimal_yaml_bare)
@@ -72,8 +68,6 @@ class TestLoad:
         assert settings.session_timeout_minutes == 30
         assert settings.log_level == "INFO"
         assert settings.data_dir == ""
-        assert settings.openai_api_key == ""
-        assert settings.openai_model == "gpt-4o-mini"
 
     def test_file_not_found_raises(self, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", "/nonexistent/path/settings.yaml")
@@ -116,17 +110,15 @@ class TestSettingsProperties:
         settings = config.load()
         # data_dir is "" so _effective_data_dir uses project root/data
         assert settings._effective_data_dir.endswith("data")
-        assert "openlucky" in settings._effective_data_dir or os.path.sep in settings._effective_data_dir
+        assert (
+            "openlucky" in settings._effective_data_dir
+            or os.path.sep in settings._effective_data_dir
+        )
 
     def test_effective_data_dir_custom(self, minimal_yaml, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", minimal_yaml)
         settings = config.load()
         assert settings._effective_data_dir == settings.data_dir
-
-    def test_sessions_dir(self, minimal_yaml, monkeypatch):
-        monkeypatch.setenv("CONFIG_FILE", minimal_yaml)
-        settings = config.load()
-        assert settings.sessions_dir == os.path.join(settings._effective_data_dir, "sessions")
 
     def test_db_path(self, minimal_yaml, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", minimal_yaml)

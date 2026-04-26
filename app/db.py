@@ -69,8 +69,7 @@ def init(db_path: str, data_dir: str | None = None) -> None:
                 status TEXT,
                 last_active_at TEXT,
                 last_summary TEXT,
-                force_new_next INTEGER NOT NULL DEFAULT 0,
-                active_agent TEXT NOT NULL DEFAULT 'claude'
+                force_new_next INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS jobs (
@@ -98,14 +97,6 @@ def init(db_path: str, data_dir: str | None = None) -> None:
         """)
         _conn.commit()
 
-        # Migrations: add columns that may be missing from older databases.
-        cur.execute("PRAGMA table_info(chats)")
-        existing_cols = {row[1] for row in cur.fetchall()}
-        if "active_agent" not in existing_cols:
-            cur.execute("ALTER TABLE chats ADD COLUMN active_agent TEXT NOT NULL DEFAULT 'claude'")
-            _conn.commit()
-            logger.info("Migrated chats table: added active_agent column")
-
     logger.info("Database initialised at %s", db_path)
 
 
@@ -132,7 +123,6 @@ def get_chat(chat_id: str) -> ChatState | None:
         last_active_at=row["last_active_at"],
         last_summary=row["last_summary"],
         force_new_next=bool(row["force_new_next"]),
-        active_agent=row["active_agent"] or "claude",
     )
 
 
@@ -143,8 +133,8 @@ def upsert_chat(state: ChatState) -> None:
             """
             INSERT INTO chats
                 (telegram_chat_id, active_session_id, active_task_name, cwd,
-                 status, last_active_at, last_summary, force_new_next, active_agent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 status, last_active_at, last_summary, force_new_next)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_chat_id) DO UPDATE SET
                 active_session_id = excluded.active_session_id,
                 active_task_name  = excluded.active_task_name,
@@ -152,8 +142,7 @@ def upsert_chat(state: ChatState) -> None:
                 status            = excluded.status,
                 last_active_at    = excluded.last_active_at,
                 last_summary      = excluded.last_summary,
-                force_new_next    = excluded.force_new_next,
-                active_agent      = excluded.active_agent
+                force_new_next    = excluded.force_new_next
             """,
             (
                 state.telegram_chat_id,
@@ -164,7 +153,6 @@ def upsert_chat(state: ChatState) -> None:
                 state.last_active_at,
                 state.last_summary,
                 int(state.force_new_next),
-                state.active_agent,
             ),
         )
         conn.commit()

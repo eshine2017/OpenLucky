@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import replace
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from app.daemon import Daemon
-from app.models import ChatState, ChatStatus, Job, JobStatus, RunResult, SessionDecision
-
+from app.models import ChatState, ChatStatus, JobStatus, RunResult, SessionDecision
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,7 +44,7 @@ def _make_daemon(tmp_path) -> tuple[Daemon, MagicMock, MagicMock, MagicMock, Mag
 
     daemon = Daemon(
         db_module=mock_db,
-        agent_registry={"claude": mock_agent},
+        agent=mock_agent,
         session_manager=mock_session_manager,
         send_message_fn=mock_send,
         jobs_dir=jobs_dir,
@@ -64,7 +60,6 @@ def _default_chat_state(chat_id: str = "42") -> ChatState:
         cwd="/tmp",
         status=ChatStatus.idle,
         active_task_name="my-task",
-        active_agent="claude",
     )
 
 
@@ -85,7 +80,7 @@ class TestInit:
     def test_stores_dependencies(self, tmp_path):
         daemon, mock_db, mock_agent, mock_sm, mock_send = _make_daemon(tmp_path)
         assert daemon._db is mock_db
-        assert daemon._agent_registry == {"claude": mock_agent}
+        assert daemon._agent is mock_agent
         assert daemon._session_manager is mock_sm
         assert daemon._send is mock_send
         assert daemon._default_cwd == "/tmp/openlucky_work"
@@ -166,8 +161,6 @@ class TestOnMessageJobCreation:
 
         # Make agent.run take a moment so we can observe the lock
         started = threading.Event()
-        original_run = mock_agent.run
-
         def slow_run(*args, **kwargs):
             started.set()
             time.sleep(0.05)
@@ -257,7 +250,6 @@ class TestRunJobSuccess:
         daemon.on_message("42", "hello")
         time.sleep(0.3)
 
-        import os
         job_logs = list((tmp_path / "jobs").glob("*.log"))
         assert len(job_logs) == 1
         content = job_logs[0].read_text(encoding="utf-8")
@@ -323,27 +315,6 @@ class TestRunJobFailure:
         # At least one message should mention failure
         combined = " ".join(all_messages)
         assert any(kw in combined.lower() for kw in ["error", "failed", "exit"])
-
-
-# ---------------------------------------------------------------------------
-# _run_job() — unknown agent fallback
-# ---------------------------------------------------------------------------
-
-class TestUnknownAgentFallback:
-    def test_falls_back_to_claude_on_unknown_agent(self, tmp_path):
-        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_agent.run.return_value = _make_run_result()
-
-        chat_state = _default_chat_state()
-        chat_state.active_agent = "nonexistent-agent"
-        mock_db.get_chat.return_value = chat_state
-        daemon._session_manager.decide.return_value = _default_decision()
-
-        daemon.on_message("42", "hello")
-        time.sleep(0.3)
-
-        # claude agent should have been called despite the unknown agent name
-        mock_agent.run.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

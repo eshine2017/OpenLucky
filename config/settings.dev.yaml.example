@@ -5,3 +5,4 @@ claude_bin: "/home/you/.local/bin/claude"  # use absolute path for systemd
 session_timeout_minutes: 30
 log_level: "DEBUG"
 data_dir: "data-dev"   # separate DB and logs from prod
+

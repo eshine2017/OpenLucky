@@ -1,13 +1,8 @@
 """Tests for app.agents.claude_code — command building and output parsing."""
 
 import json
-import os
 import signal
-import subprocess
-import threading
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from app.agents.claude_code import ClaudeCodeAgent
 
@@ -201,7 +196,7 @@ class TestRun:
 
         runner = ClaudeCodeAgent(claude_bin="claude", work_dir=str(tmp_path))
         # Non-existent cwd → should fall back to work_dir
-        result = runner.run(prompt="hi", cwd="/nonexistent/path", session_id=None, job_id="jx")
+        runner.run(prompt="hi", cwd="/nonexistent/path", session_id=None, job_id="jx")
 
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["cwd"] == str(tmp_path)
@@ -211,7 +206,7 @@ class TestRun:
         mock_popen.return_value = _make_popen_mock()
 
         runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp")
-        result = runner.run(prompt="hi", cwd=str(tmp_path), session_id=None, job_id="jy")
+        runner.run(prompt="hi", cwd=str(tmp_path), session_id=None, job_id="jy")
 
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["cwd"] == str(tmp_path)
@@ -291,9 +286,11 @@ class TestCancel:
                 return start
             return start + 10.0  # past the 5-second deadline
 
-        with patch("app.agents.claude_code.time.monotonic", side_effect=_fast_monotonic):
-            with patch("app.agents.claude_code.time.sleep"):
-                runner.cancel("j-kill")
+        with (
+            patch("app.agents.claude_code.time.monotonic", side_effect=_fast_monotonic),
+            patch("app.agents.claude_code.time.sleep"),
+        ):
+            runner.cancel("j-kill")
 
         # Should have sent SIGTERM then SIGKILL
         calls = proc.send_signal.call_args_list

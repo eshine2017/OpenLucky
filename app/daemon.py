@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app import formatter
+from app.agents.base import BaseAgent
 from app.models import ChatState, ChatStatus, Job, JobStatus, SessionDecision
 from app.session_manager import SessionManager
 
@@ -31,7 +32,7 @@ class Daemon:
     def __init__(
         self,
         db_module: Any,
-        agent_registry: dict,
+        agent: BaseAgent,
         session_manager: SessionManager,
         send_message_fn: Callable[[str, str], None],
         jobs_dir: str,
@@ -41,14 +42,14 @@ class Daemon:
         Parameters
         ----------
         db_module:        The app.db module (or compatible object with its functions).
-        agent_registry:   Dict mapping agent name → agent instance.
+        agent:            Agent instance (implements BaseAgent protocol).
         session_manager:  SessionManager instance.
         send_message_fn:  Callable(chat_id, text) that delivers a message to Telegram.
         jobs_dir:         Directory where raw job output logs are written.
         default_cwd:      Fallback working directory when chat has none set.
         """
         self._db = db_module
-        self._agent_registry = agent_registry
+        self._agent = agent
         self._session_manager = session_manager
         self._send = send_message_fn
         self._jobs_dir = jobs_dir
@@ -143,14 +144,6 @@ class Daemon:
             chat_state = replace(chat_state, status=ChatStatus.running)
             self._db.upsert_chat(chat_state)
 
-            # Resolve the active agent
-            agent_name = chat_state.active_agent or "claude"
-            agent = self._agent_registry.get(agent_name)
-            if agent is None:
-                logger.warning("Unknown agent %r, falling back to 'claude'", agent_name)
-                agent_name = "claude"
-                agent = self._agent_registry["claude"]
-
             # Determine effective cwd
             cwd = chat_state.cwd or self._default_cwd
             task_name = chat_state.active_task_name or "untitled"
@@ -159,7 +152,7 @@ class Daemon:
             self._send(
                 chat_id,
                 formatter.truncate_for_telegram(
-                    formatter.format_start(task_name, decision.mode, cwd, agent_name)
+                    formatter.format_start(task_name, decision.mode, cwd)
                 ),
             )
 
@@ -167,7 +160,7 @@ class Daemon:
             self._send(chat_id, formatter.format_running())
 
             # --- Phase 3: invoke agent ---
-            result = agent.run(
+            result = self._agent.run(
                 prompt=job.user_message,
                 cwd=cwd,
                 session_id=decision.session_id,

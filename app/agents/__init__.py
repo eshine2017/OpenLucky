@@ -1,9 +1,5 @@
 """
-agents/__init__.py — Agent registry.
-
-Available agents:
-  "claude"  — Claude Code CLI (subprocess-based)
-  "simple"  — OpenAI ChatGPT (direct API call with conversation history)
+agents/__init__.py — Agent base protocol and implementations.
 """
 
 from __future__ import annotations

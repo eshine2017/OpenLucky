@@ -11,18 +11,18 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
+from app.agents.base import BaseAgent
 from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task", "/agent"}
+_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task"}
 
 
 class CommandRouter:
-    def __init__(self, db: Any, session_manager: Any, agent_registry: dict) -> None:
+    def __init__(self, db: Any, agent: BaseAgent) -> None:
         self._db = db
-        self._session_manager = session_manager
-        self._agent_registry = agent_registry  # name → agent instance
+        self._agent = agent
 
     # ------------------------------------------------------------------
     # Public API
@@ -62,10 +62,8 @@ class CommandRouter:
             return self._handle_cwd(chat_id, arg)
         if cmd == "/task":
             return self._handle_task(chat_id, arg)
-        if cmd == "/agent":
-            return self._handle_agent(chat_id, arg)
 
-        return "Unknown command. Available: /status /stop /new /reset /cwd /task /agent"
+        return "Unknown command. Available: /status /stop /new /reset /cwd /task"
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -95,12 +93,7 @@ class CommandRouter:
 
         logger.info("Canceling job %s for chat %s", active_job.job_id, chat_id)
 
-        # Cancel via the active agent
-        state = self._db.get_chat(chat_id)
-        agent_name = state.active_agent if state else "claude"
-        agent = self._agent_registry.get(agent_name)
-        if agent is not None:
-            agent.cancel(active_job.job_id)
+        self._agent.cancel(active_job.job_id)
 
         # Update job status
         active_job.status = JobStatus.canceled
@@ -161,29 +154,6 @@ class CommandRouter:
         if not os.path.isdir(path):
             msg += f"\n⚠️  Warning: {path!r} does not exist."
         return msg
-
-    def _handle_agent(self, chat_id: str, name: str) -> str:
-        available = sorted(self._agent_registry.keys())
-        if not name:
-            state = self._db.get_chat(chat_id)
-            current = state.active_agent if state else "claude"
-            return f"Current agent: {current}\nAvailable: {', '.join(available)}"
-
-        name = name.strip().lower()
-        if name not in self._agent_registry:
-            return f"Unknown agent {name!r}. Available: {', '.join(available)}"
-
-        state = self._db.get_chat(chat_id)
-        if state is None:
-            state = ChatState(telegram_chat_id=chat_id)
-
-        old = state.active_agent
-        state.active_agent = name
-        state.active_session_id = None  # new agent = new session
-        state.force_new_next = True
-        self._db.upsert_chat(state)
-
-        return f"Agent switched: {old} → {name}\nNext message will start a new session."
 
     def _handle_task(self, chat_id: str, name: str) -> str:
         if not name:

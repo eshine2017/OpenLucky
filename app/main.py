@@ -24,7 +24,6 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E4
 
 from app import config, db  # noqa: E402
 from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
-from app.agents.openai_agent import OpenAIAgent  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
 from app.session_manager import SessionManager  # noqa: E402
@@ -57,17 +56,6 @@ def main() -> None:
         work_dir=settings.work_dir,
     )
 
-    openai_agent = OpenAIAgent(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
-        sessions_dir=settings.sessions_dir,
-    )
-
-    agent_registry = {
-        claude_agent.name: claude_agent,
-        openai_agent.name: openai_agent,
-    }
-
     session_manager = SessionManager(
         db=db,
         timeout_minutes=settings.session_timeout_minutes,
@@ -75,8 +63,7 @@ def main() -> None:
 
     command_router = CommandRouter(
         db=db,
-        session_manager=session_manager,
-        agent_registry=agent_registry,
+        agent=claude_agent,
     )
 
     # 4. Thread-safe send_message callback for the Daemon.
@@ -117,7 +104,7 @@ def main() -> None:
     # 6. Create Daemon and TelegramBot.
     daemon = Daemon(
         db_module=db,
-        agent_registry=agent_registry,
+        agent=claude_agent,
         session_manager=session_manager,
         send_message_fn=send_message,
         jobs_dir=settings.jobs_dir,
