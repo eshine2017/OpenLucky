@@ -35,7 +35,7 @@ class ClaudeCodeAgent:
         self.claude_bin = claude_bin
         self.work_dir = work_dir
         # job_id → Popen; guarded by _proc_lock
-        self._processes: dict[str, subprocess.Popen] = {}
+        self._processes: dict[str, subprocess.Popen[str]] = {}
         self._proc_lock = threading.Lock()
 
     # ------------------------------------------------------------------

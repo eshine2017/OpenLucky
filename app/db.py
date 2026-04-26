@@ -12,6 +12,7 @@ import os
 import sqlite3
 import threading
 from datetime import UTC
+from typing import Any
 
 from app.models import ChatState, ChatStatus, Job, JobStatus
 
@@ -296,7 +297,7 @@ def archive_session(session_id: str, chat_id: str, task_name: str | None, cwd: s
     logger.debug("Archived session %s for chat %s", session_id, chat_id)
 
 
-def get_session_history(chat_id: str) -> list[dict]:
+def get_session_history(chat_id: str) -> list[dict[str, Any]]:
     with _lock:
         cur = _get_conn().cursor()
         cur.execute(

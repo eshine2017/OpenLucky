@@ -117,7 +117,7 @@ def main() -> None:
         daemon=daemon,
         command_router=command_router,
     )
-    bot._app = tg_app  # type: ignore[attr-defined]
+    bot._app = tg_app
     tg_app.add_handler(MessageHandler(filters.TEXT, bot._on_text_message))
 
     # 7. Hand control to PTB — it creates and manages its own event loop.

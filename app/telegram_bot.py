@@ -5,9 +5,12 @@ telegram_bot.py — Telegram long-polling bot using python-telegram-bot v20 (asy
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
+
+type _App = Application[Any, Any, Any, Any, Any, Any]
 
 from app.command_router import CommandRouter
 from app.daemon import Daemon
@@ -32,7 +35,7 @@ class TelegramBot:
         self._allowed_users = allowed_users
         self._daemon = daemon
         self._command_router = command_router
-        self._app: Application | None = None
+        self._app: _App | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -45,7 +48,7 @@ class TelegramBot:
         logger.info("Starting Telegram bot (long-polling)…")
         await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value]
 
-    def get_application(self) -> Application:
+    def get_application(self) -> _App:
         """Return the underlying Application (needed to send messages from threads)."""
         if self._app is None:
             raise RuntimeError("Bot has not been started yet")
