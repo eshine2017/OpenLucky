@@ -196,13 +196,14 @@ class Daemon:
                     cwd,
                 )
 
-            # Update chat state
+            # Update chat state; on error, clear session so next message starts fresh
+            success = result.exit_code == 0
             chat_state = replace(
                 chat_state,
-                active_session_id=result.session_id or chat_state.active_session_id,
+                active_session_id=result.session_id if success else None,
                 last_active_at=job.finished_at,
                 last_summary=result.summary,
-                status=ChatStatus.idle if result.exit_code == 0 else ChatStatus.error,
+                status=ChatStatus.idle if success else ChatStatus.error,
             )
             self._db.upsert_chat(chat_state)
 
