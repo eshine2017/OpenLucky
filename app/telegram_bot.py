@@ -10,10 +10,10 @@ from typing import Any
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-type _App = Application[Any, Any, Any, Any, Any, Any]
-
 from app.command_router import CommandRouter
 from app.daemon import Daemon
+
+type _App = Application[Any, Any, Any, Any, Any, Any]
 
 logger = logging.getLogger(__name__)
 
