@@ -5,21 +5,18 @@ A lightweight Telegram bot that controls [Claude Code](https://claude.ai/code) a
 ## Requirements
 
 - Python 3.12+
-- [Claude Code CLI](https://claude.ai/code) installed and authenticated (`claude` on PATH)
+- [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
+- [`just`](https://github.com/casey/just) command runner (recommended)
 
 ## Setup
 
 ```bash
 git clone https://github.com/eshine2017/OpenLucky.git
 cd OpenLucky
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+just venv
 cp config/settings.yaml.example config/settings.yaml
 ```
-
-## Configuration
 
 Edit `config/settings.yaml`:
 
@@ -27,32 +24,27 @@ Edit `config/settings.yaml`:
 telegram_bot_token: "YOUR_BOT_TOKEN"
 allowed_users: [123456789]   # your Telegram user ID — get it from @userinfobot
 work_dir: "/home/youruser/projects"
-claude_bin: "claude"
+claude_bin: "/home/youruser/.local/bin/claude"   # must be absolute path
 session_timeout_minutes: 30
 log_level: "INFO"
 ```
+
+> **Note:** `claude_bin` must be an absolute path. systemd runs with a minimal PATH and won't find `claude` by name alone.
 
 ## Running
 
 **Dev (foreground):**
 ```bash
-source .venv/bin/activate
-python3 -m app.main
+just dev
 ```
 
 **Prod (systemd):**
 ```bash
-sudo cp openlucky.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable openlucky
-sudo systemctl start openlucky
-sudo journalctl -u openlucky -f   # follow logs
+just service-install
+just service-logs     # follow logs
 ```
 
-For a separate dev bot, copy `config/settings.dev.yaml.example` to `config/settings.dev.yaml` and run:
-```bash
-CONFIG_FILE=config/settings.dev.yaml python3 -m app.main
-```
+For a separate dev bot, copy `config/settings.dev.yaml.example` to `config/settings.dev.yaml` — `just dev` picks it up automatically.
 
 ## Commands
 
@@ -66,3 +58,14 @@ CONFIG_FILE=config/settings.dev.yaml python3 -m app.main
 | `/task <name>` | Set a label for the current task |
 
 Any other message is sent to Claude Code as a prompt. Consecutive messages within 30 minutes resume the same session automatically.
+
+## Development
+
+```bash
+just test       # run tests
+just ci         # lint + typecheck + tests with coverage (mirrors CI)
+just dev-reset  # clear dev DB and job logs
+just db-shell   # open SQLite shell on dev DB
+```
+
+Run `just --list` to see all available commands.

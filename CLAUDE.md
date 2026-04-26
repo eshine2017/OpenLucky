@@ -6,24 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **openlucky** is a lightweight Telegram-controlled Claude Code daemon. A long-running daemon receives messages from a Telegram bot, dispatches them to Claude Code as the execution engine, and returns a summary of the result back to the user via the same Telegram chat.
 
-Language: **Python**
+Language: **Python 3.12+**
 
-## Running the Service
+## Quick Start
 
-**Production** (systemd):
 ```bash
-sudo cp openlucky.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable openlucky
-sudo systemctl start openlucky
-sudo journalctl -u openlucky -f   # follow logs
+just venv          # create .venv and install dependencies
+just dev           # start dev service (uses config/settings.dev.yaml)
+just ci            # lint + typecheck + tests with coverage (mirrors CI)
 ```
 
-**Dev** (foreground):
-```bash
-source .venv/bin/activate
-CONFIG_FILE=config/settings.dev.yaml python3 -m app.main
-```
+Run `just --list` to see all available commands.
 
 ## Dev vs Prod
 
@@ -33,9 +26,8 @@ Two separate bots and data directories to avoid conflicts:
 |---|---|---|
 | Config | `config/settings.yaml` | `config/settings.dev.yaml` |
 | Data | `data/` | `data-dev/` |
-| Bot | prod bot token | dev bot token |
 
-`CONFIG_FILE` env var selects the config. `data_dir` in the yaml controls where DB and logs are stored. Both files are gitignored — use the `.example` files as templates.
+`CONFIG_FILE` env var selects the config. Both config files are gitignored — use the `.example` files as templates.
 
 ## Architecture
 
@@ -43,81 +35,55 @@ Two separate bots and data directories to avoid conflicts:
 Telegram User
      │
      ▼
-Telegram Bot (long-polling)
+TelegramBot (long-polling)
+     │  dispatches messages
+     ▼
+Daemon ──► CommandRouter (handles /commands)
      │
      ▼
-┌─────────────────────────────────────────┐
-│  Daemon                                 │
-│  command_router  →  handle /commands    │
-│  session_manager →  new vs resume       │
-│  claude_runner   →  subprocess + output │
-│  db (SQLite)     →  state persistence   │
-└─────────────────────────────────────────┘
+SessionManager (new vs resume decision)
      │
      ▼
-Claude Code CLI (execution engine)
+ClaudeCodeAgent (subprocess wrapper)
      │
      ▼
-Summary sent back → Telegram
+Claude Code CLI  →  summary sent back to Telegram
 ```
 
 ### Three-layer abstraction (critical distinction)
+
 - **session** — Claude Code's task context (`--resume <session_id>`)
 - **job** — one execution triggered by one user message
 - **process** — the local subprocess carrying that job
 
-## Project Structure
+### Module responsibilities
 
-```
-app/
-  main.py             # entry point, starts bot + daemon
-  telegram_bot.py     # Telegram polling, message entry point
-  command_router.py   # identifies and handles /commands
-  session_manager.py  # new vs resume decision, reads/writes chats table
-  claude_runner.py    # subprocess management only
-  daemon.py           # job lifecycle orchestration
-  db.py               # SQLite init and CRUD
-  models.py           # dataclasses: Job, ChatState, RunResult
-  config.py           # loads settings.yaml, respects CONFIG_FILE env var
-  formatter.py        # Telegram message formatting
-config/
-  settings.yaml           # prod config (gitignored)
-  settings.yaml.example   # template
-  settings.dev.yaml       # dev config (gitignored)
-  settings.dev.yaml.example
-data/                 # prod runtime state (gitignored)
-data-dev/             # dev runtime state (gitignored)
-openlucky.service     # systemd unit file
-```
+| Module | Responsibility |
+|---|---|
+| `main.py` | Entry point — wires bot + daemon together |
+| `telegram_bot.py` | PTB long-polling; hands messages to daemon |
+| `daemon.py` | Job lifecycle orchestration; owns the event queue |
+| `command_router.py` | Parses and executes `/commands`; never touches Claude |
+| `session_manager.py` | Decides new vs resume; reads/writes `chats` table |
+| `agents/claude_code.py` | Spawns subprocess, cancels it, parses stream-json output |
+| `db.py` | SQLite init and CRUD |
+| `models.py` | Dataclasses: `Job`, `ChatState`, `RunResult` |
+| `config.py` | Loads settings.yaml; respects `CONFIG_FILE` env var |
+| `formatter.py` | Formats messages for Telegram |
+
+`ClaudeCodeAgent` knows nothing about Telegram or the database — that boundary is intentional and must be preserved.
 
 ## Claude Code Integration
 
-`claude_runner.py` has exactly one responsibility: build the command, spawn the subprocess, collect output, parse `session_id`. It knows nothing about Telegram or the database.
-
-Invoke Claude Code with:
+Invocation pattern:
 ```
-claude -p "<prompt>" --output-format stream-json --verbose
-claude -p "<prompt>" --output-format stream-json --verbose --resume <session_id>
+claude -p "<prompt>" --output-format stream-json --verbose [--resume <session_id>]
 ```
 
-`--verbose` is required when combining `-p` with `--output-format stream-json`, otherwise Claude exits with code 1.
-
-**Important:** `claude_bin` in settings must be an absolute path (e.g. `/home/user/.local/bin/claude`). systemd runs with a minimal PATH and won't find `claude` by name alone.
-
-Session ID is parsed from the `{"type": "result", "session_id": "..."}` line in stdout.
-
-## Command Protocol
-
-Control commands (handled by `command_router`, never sent to Claude Code):
-
-| Command | Behavior |
-|---|---|
-| `/status` | Current status, task name, cwd, last job time |
-| `/stop` | Terminate current subprocess → job=canceled, chat=idle |
-| `/new` | Force next message to open a new session |
-| `/reset` | Clear active_session_id binding (history kept) |
-| `/cwd /path` | Switch working directory, force new session |
-| `/task name` | Set active task name |
+Key constraints:
+- `--verbose` is **required** with `-p` + `--output-format stream-json`; omitting it causes exit code 1.
+- `claude_bin` in settings must be an **absolute path** — systemd runs with a minimal PATH.
+- Session ID is parsed from the `{"type": "result", "session_id": "..."}` line in stdout.
 
 ## Session Decision Logic
 
@@ -129,16 +95,16 @@ Resume current session when **all** conditions are met:
 
 Otherwise: new session.
 
-## Dev Tooling
+## Command Protocol
 
-```bash
-pip install -r requirements-dev.txt
-pytest                    # run all tests
-pytest tests/test_db.py   # run single test file
-ruff check app/ tests/    # lint
-ruff format app/ tests/   # format
-mypy app/                 # type check
-```
+| Command | Behavior |
+|---|---|
+| `/status` | Current status, task name, cwd, last job time |
+| `/stop` | Terminate current subprocess → job=canceled, chat=idle |
+| `/new` | Force next message to open a new session |
+| `/reset` | Clear active_session_id binding (history kept) |
+| `/cwd /path` | Switch working directory, force new session |
+| `/task name` | Set active task name |
 
 ## Debugging
 
