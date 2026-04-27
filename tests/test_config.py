@@ -115,10 +115,21 @@ class TestSettingsProperties:
             or os.path.sep in settings._effective_data_dir
         )
 
-    def test_effective_data_dir_custom(self, minimal_yaml, monkeypatch):
+    def test_effective_data_dir_absolute(self, minimal_yaml, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", minimal_yaml)
         settings = config.load()
+        # data_dir in minimal_yaml is an absolute path — returned unchanged
+        assert os.path.isabs(settings.data_dir)
         assert settings._effective_data_dir == settings.data_dir
+
+    @pytest.mark.unit
+    def test_effective_data_dir_relative_resolves_to_project_root(self, tmp_path, monkeypatch):
+        cfg = tmp_path / "settings.yaml"
+        cfg.write_text("telegram_bot_token: t\ndata_dir: data-dev\n", encoding="utf-8")
+        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        settings = config.load()
+        assert settings._effective_data_dir == os.path.join(settings.project_root, "data-dev")
+        assert not settings._effective_data_dir.startswith("/tmp")
 
     def test_db_path(self, minimal_yaml, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", minimal_yaml)

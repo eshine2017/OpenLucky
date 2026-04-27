@@ -46,7 +46,11 @@ class Settings:
 
     @property
     def _effective_data_dir(self) -> str:
-        return self.data_dir if self.data_dir else os.path.join(_PROJECT_ROOT, "data")
+        if not self.data_dir:
+            return os.path.join(_PROJECT_ROOT, "data")
+        if os.path.isabs(self.data_dir):
+            return self.data_dir
+        return os.path.join(_PROJECT_ROOT, self.data_dir)
 
     @property
     def db_path(self) -> str:
