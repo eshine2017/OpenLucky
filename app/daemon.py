@@ -142,6 +142,9 @@ class Daemon:
         bs: BootstrapStatus,
     ) -> None:
         """Prepare and launch a bootstrap job in a background thread."""
+        if self._bootstrap_checker is None:
+            raise RuntimeError("_launch_bootstrap_job called without a bootstrap_checker")
+
         # Archive any existing normal session before starting fresh bootstrap
         if bs.state == BootstrapState.NEEDED and chat_state.active_session_id:
             cwd = chat_state.cwd or self._default_cwd
@@ -157,7 +160,6 @@ class Daemon:
 
         if bs.state == BootstrapState.NEEDED:
             logger.info("bootstrap: NEEDED → starting new session for chat %s", chat_id)
-            assert self._bootstrap_checker is not None
             prompt = (
                 self._bootstrap_checker.load_bootstrap_prompt()
                 + "\n\n# First message\n"
@@ -385,8 +387,9 @@ class Daemon:
             self._send(chat_id, "Something went wrong during setup. Try again when ready.")
             return
 
-        # Store session_id for the next resume turn (even if not yet complete)
+        # Persist session_id immediately so a crash after this point doesn't lose it
         chat_state = replace(chat_state, bootstrap_session_id=new_bootstrap_session_id)
+        self._db.upsert_chat(chat_state)
 
         # Both signals required for completion: sentinel + file verification
         if (

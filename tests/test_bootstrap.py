@@ -183,6 +183,11 @@ class TestFileState:
         )
         assert checker._file_state("USER.md", template) == "template"
 
+    @pytest.mark.unit
+    def test_raises_on_disallowed_filename(self, checker):
+        with pytest.raises(ValueError, match="only accepts"):
+            checker._file_state("../../etc/passwd", "template")
+
 
 # ---------------------------------------------------------------------------
 # Completion signal
@@ -205,6 +210,10 @@ class TestIsCompleteSignal:
     @pytest.mark.unit
     def test_false_on_empty_strings(self):
         assert is_complete_signal("", "") is False
+
+    @pytest.mark.unit
+    def test_detects_sentinel_embedded_in_longer_text(self):
+        assert is_complete_signal(f"prefix{COMPLETION_SENTINEL}suffix", "") is True
 
 
 # ---------------------------------------------------------------------------

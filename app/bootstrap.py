@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 COMPLETION_SENTINEL = "[[BOOTSTRAP_COMPLETE]]"
 
-_FALLBACK_PROMPT = """# First-Time Setup
+_FALLBACK_PROMPT = f"""# First-Time Setup
 
 You are helping a new user set up their personal assistant profile.
 Your goal is to fill in two files in the workspace:
@@ -33,8 +33,10 @@ then write the answers into the files using your Edit/Write tools.
 When both files are updated and the user has confirmed, output the following
 sentinel on its own line:
 
-[[BOOTSTRAP_COMPLETE]]
+{COMPLETION_SENTINEL}
 """
+
+_ALLOWED_FILES: frozenset[str] = frozenset({"SOUL.md", "USER.md"})
 
 
 class BootstrapState(StrEnum):
@@ -113,9 +115,11 @@ class BootstrapChecker:
     ) -> Literal["missing", "template", "filled"]:
         """Three-way check: missing | template | filled. Returns 'missing' on OSError.
 
-        Only 'SOUL.md' and 'USER.md' are valid inputs; no path parameter to
-        prevent path-traversal.
+        Only 'SOUL.md' and 'USER.md' are accepted to prevent path-traversal.
         """
+        if filename not in _ALLOWED_FILES:
+            allowed = sorted(_ALLOWED_FILES)
+            raise ValueError(f"_file_state only accepts {allowed!r}, got {filename!r}")
         path = os.path.join(self._workspace_dir, filename)
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:

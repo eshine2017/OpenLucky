@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -123,15 +124,17 @@ class CommandRouter:
         self._agent.cancel(active_job.job_id)
 
         # Update job status
-        active_job.status = JobStatus.canceled
-        active_job.finished_at = datetime.now(UTC).isoformat()
+        active_job = replace(
+            active_job,
+            status=JobStatus.canceled,
+            finished_at=datetime.now(UTC).isoformat(),
+        )
         self._db.update_job(active_job)
 
         # Update chat status
         state = self._db.get_chat(chat_id)
         if state:
-            state.status = ChatStatus.idle
-            self._db.upsert_chat(state)
+            self._db.upsert_chat(replace(state, status=ChatStatus.idle))
 
         return f"Canceled job {active_job.job_id[:8]}..."
 
@@ -140,8 +143,7 @@ class CommandRouter:
         if state is None:
             state = ChatState(telegram_chat_id=chat_id)
 
-        state.force_new_next = True
-        self._db.upsert_chat(state)
+        self._db.upsert_chat(replace(state, force_new_next=True))
         return "Next message will start a new session."
 
     def _handle_reset(self, chat_id: str) -> str:
@@ -151,9 +153,7 @@ class CommandRouter:
 
         old_session = state.active_session_id
         old_bootstrap = state.bootstrap_session_id
-        state.active_session_id = None
-        state.bootstrap_session_id = None  # escape hatch for stuck bootstrap
-        self._db.upsert_chat(state)
+        self._db.upsert_chat(replace(state, active_session_id=None, bootstrap_session_id=None))
 
         if old_session or old_bootstrap:
             parts = []
@@ -177,9 +177,7 @@ class CommandRouter:
             state = ChatState(telegram_chat_id=chat_id)
 
         old_cwd = state.cwd
-        state.cwd = path
-        state.force_new_next = True  # changing cwd forces new session
-        self._db.upsert_chat(state)
+        self._db.upsert_chat(replace(state, cwd=path, force_new_next=True))
 
         msg = (
             f"Working dir changed: {old_cwd or '(not set)'} -> {path}\n"
@@ -198,10 +196,10 @@ class CommandRouter:
             state = ChatState(telegram_chat_id=chat_id)
 
         old_name = state.active_task_name
-        state.active_task_name = name.strip()
-        self._db.upsert_chat(state)
+        new_name = name.strip()
+        self._db.upsert_chat(replace(state, active_task_name=new_name))
 
-        return f"Task name set: {old_name or '(none)'} -> {state.active_task_name}"
+        return f"Task name set: {old_name or '(none)'} -> {new_name}"
 
     def _handle_soul(self) -> str:
         if self._context_builder is None:

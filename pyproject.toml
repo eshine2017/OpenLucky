@@ -18,3 +18,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "unit: fast, isolated unit tests",
+    "integration: tests that exercise multiple components together",
+]

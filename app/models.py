@@ -52,7 +52,7 @@ class Job:
 
 @dataclass
 class RunResult:
-    session_id: str
+    session_id: str | None
     stdout: str
     stderr: str
     exit_code: int

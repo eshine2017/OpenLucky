@@ -393,8 +393,12 @@ class TestCommandsDuringBootstrap:
         state = _chat(bootstrap_session_id="bs-live")
         state.status = ChatStatus.running
         mock_db.get_chat.return_value = state
-        mock_db.get_active_job.return_value = MagicMock(
-            job_id="some-job-id", status=JobStatus.running
+        from app.models import Job
+
+        mock_db.get_active_job.return_value = Job(
+            job_id="some-job-id",
+            telegram_chat_id="42",
+            status=JobStatus.running,
         )
 
         from app.command_router import CommandRouter
