@@ -31,9 +31,10 @@ class ClaudeCodeAgent:
 
     name = "claude"
 
-    def __init__(self, claude_bin: str, work_dir: str) -> None:
+    def __init__(self, claude_bin: str, work_dir: str, workspace_dir: str = "") -> None:
         self.claude_bin = claude_bin
         self.work_dir = work_dir
+        self.workspace_dir = workspace_dir
         # job_id → Popen; guarded by _proc_lock
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._proc_lock = threading.Lock()
@@ -149,7 +150,11 @@ class ClaudeCodeAgent:
             "--output-format",
             "stream-json",
             "--verbose",
+            "--permission-mode",
+            "acceptEdits",
         ]
+        if self.workspace_dir:
+            cmd += ["--add-dir", self.workspace_dir]
         if session_id:
             cmd += ["--resume", session_id]
         return cmd

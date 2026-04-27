@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.command_router import CommandRouter
+from app.context_builder import ContextBuilder
 from app.models import ChatState, ChatStatus, Job, JobStatus
 
 
@@ -150,3 +151,83 @@ class TestHandleTask:
         assert "new-task" in result
         saved = mock_db.upsert_chat.call_args[0][0]
         assert saved.active_task_name == "new-task"
+
+
+class TestMemoryCommands:
+    @pytest.fixture()
+    def mock_cb(self):
+        return MagicMock(spec=ContextBuilder)
+
+    @pytest.fixture()
+    def router_with_cb(self, mock_db, mock_claude_agent, mock_cb):
+        return CommandRouter(db=mock_db, agent=mock_claude_agent, context_builder=mock_cb)
+
+    # --- /soul ---
+
+    def test_soul_no_builder(self, router) -> None:
+        result = router.handle("1", "/soul")
+        assert "not configured" in result
+
+    def test_soul_empty_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_soul.return_value = ""
+        result = router_with_cb.handle("1", "/soul")
+        assert "empty" in result or "template" in result
+
+    def test_soul_returns_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_soul.return_value = "I am your assistant."
+        result = router_with_cb.handle("1", "/soul")
+        assert "I am your assistant." in result
+
+    def test_soul_truncates_long_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_soul.return_value = "x" * 5000
+        result = router_with_cb.handle("1", "/soul")
+        assert len(result) <= 4096
+
+    # --- /whoami ---
+
+    def test_whoami_no_builder(self, router) -> None:
+        result = router.handle("1", "/whoami")
+        assert "not configured" in result
+
+    def test_whoami_empty_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_user.return_value = ""
+        result = router_with_cb.handle("1", "/whoami")
+        assert "empty" in result or "template" in result
+
+    def test_whoami_returns_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_user.return_value = "Name: Alice"
+        result = router_with_cb.handle("1", "/whoami")
+        assert "Name: Alice" in result
+
+    def test_whoami_truncates_long_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_user.return_value = "y" * 5000
+        result = router_with_cb.handle("1", "/whoami")
+        assert len(result) <= 4096
+
+    # --- /memory ---
+
+    def test_memory_no_builder(self, router) -> None:
+        result = router.handle("1", "/memory")
+        assert "not configured" in result
+
+    def test_memory_empty_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_memory.return_value = ""
+        result = router_with_cb.handle("1", "/memory")
+        assert "empty" in result or "template" in result
+
+    def test_memory_returns_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_memory.return_value = "Remember: Python 3.12"
+        result = router_with_cb.handle("1", "/memory")
+        assert "Remember: Python 3.12" in result
+
+    def test_memory_truncates_long_content(self, router_with_cb, mock_cb) -> None:
+        mock_cb.read_memory.return_value = "z" * 5000
+        result = router_with_cb.handle("1", "/memory")
+        assert len(result) <= 4096
+
+    # --- is_command recognises new commands ---
+
+    def test_new_commands_recognised(self, router) -> None:
+        assert router.is_command("/soul") is True
+        assert router.is_command("/whoami") is True
+        assert router.is_command("/memory") is True

@@ -14,6 +14,9 @@ config/settings.dev.yaml
 # Claude Code local settings
 .claude/settings.local.json
 
+# Docs
+docs/
+
 # Test coverage
 .coverage
 htmlcov/

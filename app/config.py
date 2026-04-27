@@ -61,6 +61,10 @@ class Settings:
         return os.path.join(self._effective_data_dir, "logs")
 
     @property
+    def workspace_dir(self) -> str:
+        return os.path.join(self._effective_data_dir, "workspace")
+
+    @property
     def project_root(self) -> str:
         return _PROJECT_ROOT
 

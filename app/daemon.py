@@ -17,6 +17,7 @@ from typing import Any
 
 from app import formatter
 from app.agents.base import BaseAgent
+from app.context_builder import ContextBuilder
 from app.models import ChatState, ChatStatus, Job, JobStatus, SessionDecision
 from app.session_manager import SessionManager
 
@@ -37,6 +38,7 @@ class Daemon:
         send_message_fn: Callable[[str, str], None],
         jobs_dir: str,
         default_cwd: str = "/tmp/openlucky_work",
+        context_builder: ContextBuilder | None = None,
     ) -> None:
         """
         Parameters
@@ -47,6 +49,7 @@ class Daemon:
         send_message_fn:  Callable(chat_id, text) that delivers a message to Telegram.
         jobs_dir:         Directory where raw job output logs are written.
         default_cwd:      Fallback working directory when chat has none set.
+        context_builder:  Optional ContextBuilder for prepending identity/memory prefix.
         """
         self._db = db_module
         self._agent = agent
@@ -54,6 +57,7 @@ class Daemon:
         self._send = send_message_fn
         self._jobs_dir = jobs_dir
         self._default_cwd = default_cwd
+        self._context_builder = context_builder
 
         # chat_id → job_id for currently running jobs
         self.running_locks: dict[str, str] = {}
@@ -123,6 +127,26 @@ class Daemon:
         logger.info("Launched thread for job %s (chat=%s)", job_id, chat_id)
 
     # ------------------------------------------------------------------
+    # Prompt construction
+    # ------------------------------------------------------------------
+
+    def _build_prompt(self, user_message: str, mode: str) -> str:
+        if self._context_builder is None:
+            return user_message
+        try:
+            if mode == "new":
+                prefix = self._context_builder.build_prefix()
+                if prefix:
+                    return f"{prefix}\n\n---\n\n# Task\n{user_message}"
+            else:
+                hint = self._context_builder.build_resume_hint()
+                if hint:
+                    return f"{hint}\n\n{user_message}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Context builder failed, using raw message: %s", exc)
+        return user_message
+
+    # ------------------------------------------------------------------
     # Background job execution
     # ------------------------------------------------------------------
 
@@ -160,8 +184,9 @@ class Daemon:
             self._send(chat_id, formatter.format_running())
 
             # --- Phase 3: invoke agent ---
+            prompt = self._build_prompt(job.user_message, decision.mode)
             result = self._agent.run(
-                prompt=job.user_message,
+                prompt=prompt,
                 cwd=cwd,
                 session_id=decision.session_id,
                 job_id=job.job_id,

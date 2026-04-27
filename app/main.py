@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import sys
 from typing import Any
 
@@ -25,9 +26,12 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E4
 from app import config, db  # noqa: E402
 from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
+from app.context_builder import ContextBuilder  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
 from app.session_manager import SessionManager  # noqa: E402
 from app.telegram_bot import TelegramBot  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 def _configure_logging(level: str) -> None:
@@ -39,21 +43,49 @@ def _configure_logging(level: str) -> None:
     )
 
 
+def _bootstrap_workspace(workspace_dir: str) -> None:
+    """Copy template files into workspace_dir, skipping files that already exist."""
+    template_dir = os.path.join(_PROJECT_ROOT, "config", "templates")
+    memory_dir = os.path.join(workspace_dir, "memory")
+    os.makedirs(memory_dir, exist_ok=True)
+
+    for rel in ("SOUL.md", "USER.md", os.path.join("memory", "MEMORY.md")):
+        src = os.path.join(template_dir, rel)
+        dst = os.path.join(workspace_dir, rel)
+        if not os.path.exists(src):
+            logger.warning("Template missing: %s", src)
+            continue
+        if os.path.exists(dst):
+            continue
+        # Atomic create-if-missing: open with O_CREAT | O_EXCL
+        try:
+            fd = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh, open(src, encoding="utf-8") as src_fh:
+                shutil.copyfileobj(src_fh, fh)
+            logger.info("Created workspace file: %s", dst)
+        except FileExistsError:
+            pass  # another process beat us to it — fine
+
+
 def main() -> None:
     # 1. Load configuration
     settings = config.get()
     _configure_logging(settings.log_level)
 
-    logger = logging.getLogger(__name__)
     logger.info("openlucky starting up…")
 
     # 2. Initialise database (also creates data/jobs and data/logs)
     db.init(settings.db_path, data_dir=settings._effective_data_dir)
 
-    # 3. Create domain objects
+    # 3. Bootstrap workspace and create domain objects
+    _bootstrap_workspace(settings.workspace_dir)
+
+    context_builder = ContextBuilder(workspace_dir=settings.workspace_dir)
+
     claude_agent = ClaudeCodeAgent(
         claude_bin=settings.claude_bin,
         work_dir=settings.work_dir,
+        workspace_dir=settings.workspace_dir,
     )
 
     session_manager = SessionManager(
@@ -64,6 +96,7 @@ def main() -> None:
     command_router = CommandRouter(
         db=db,
         agent=claude_agent,
+        context_builder=context_builder,
     )
 
     # 4. Thread-safe send_message callback for the Daemon.
@@ -109,6 +142,7 @@ def main() -> None:
         send_message_fn=send_message,
         jobs_dir=settings.jobs_dir,
         default_cwd=settings.work_dir,
+        context_builder=context_builder,
     )
 
     bot = TelegramBot(

@@ -22,6 +22,8 @@ class TestBuildCommand:
             "--output-format",
             "stream-json",
             "--verbose",
+            "--permission-mode",
+            "acceptEdits",
         ]
 
     def test_with_session(self) -> None:
@@ -34,9 +36,22 @@ class TestBuildCommand:
             "--output-format",
             "stream-json",
             "--verbose",
+            "--permission-mode",
+            "acceptEdits",
             "--resume",
             "sess-123",
         ]
+
+    def test_with_workspace_dir_adds_add_dir(self) -> None:
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", workspace_dir="/data/ws")
+        cmd = runner._build_command("hi", session_id=None)
+        assert "--add-dir" in cmd
+        assert "/data/ws" in cmd
+
+    def test_without_workspace_dir_no_add_dir(self) -> None:
+        runner = _make_runner()  # workspace_dir=""
+        cmd = runner._build_command("hi", session_id=None)
+        assert "--add-dir" not in cmd
 
     def test_empty_session_id_not_added(self) -> None:
         runner = _make_runner()

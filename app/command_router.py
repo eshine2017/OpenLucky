@@ -12,17 +12,25 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.context_builder import ContextBuilder
+from app.formatter import truncate_for_telegram
 from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task"}
+_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task", "/soul", "/whoami", "/memory"}
 
 
 class CommandRouter:
-    def __init__(self, db: Any, agent: BaseAgent) -> None:
+    def __init__(
+        self,
+        db: Any,
+        agent: BaseAgent,
+        context_builder: ContextBuilder | None = None,
+    ) -> None:
         self._db = db
         self._agent = agent
+        self._context_builder = context_builder
 
     # ------------------------------------------------------------------
     # Public API
@@ -62,8 +70,14 @@ class CommandRouter:
             return self._handle_cwd(chat_id, arg)
         if cmd == "/task":
             return self._handle_task(chat_id, arg)
+        if cmd == "/soul":
+            return self._handle_soul()
+        if cmd == "/whoami":
+            return self._handle_whoami()
+        if cmd == "/memory":
+            return self._handle_memory()
 
-        return "Unknown command. Available: /status /stop /new /reset /cwd /task"
+        return "Unknown command. Available: /status /stop /new /reset /cwd /task /soul /whoami /memory"  # noqa: E501
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -168,3 +182,27 @@ class CommandRouter:
         self._db.upsert_chat(state)
 
         return f"Task name set: {old_name or '(none)'} -> {state.active_task_name}"
+
+    def _handle_soul(self) -> str:
+        if self._context_builder is None:
+            return "Memory feature not configured."
+        content = self._context_builder.read_soul().strip()
+        if not content:
+            return "(SOUL.md is empty or matches the default template)"
+        return truncate_for_telegram(content)
+
+    def _handle_whoami(self) -> str:
+        if self._context_builder is None:
+            return "Memory feature not configured."
+        content = self._context_builder.read_user().strip()
+        if not content:
+            return "(USER.md is empty or matches the default template)"
+        return truncate_for_telegram(content)
+
+    def _handle_memory(self) -> str:
+        if self._context_builder is None:
+            return "Memory feature not configured."
+        content = self._context_builder.read_memory().strip()
+        if not content:
+            return "(memory/MEMORY.md is empty or matches the default template)"
+        return truncate_for_telegram(content)
