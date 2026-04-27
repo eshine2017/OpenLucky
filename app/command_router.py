@@ -18,7 +18,7 @@ from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {"/status", "/stop", "/new", "/reset", "/cwd", "/task", "/soul", "/whoami", "/memory"}
+_COMMANDS = {"!status", "!stop", "!new", "!reset", "!cwd", "!task", "!soul", "!whoami", "!memory"}
 
 
 class CommandRouter:
@@ -37,11 +37,15 @@ class CommandRouter:
     # ------------------------------------------------------------------
 
     def is_command(self, text: str) -> bool:
-        """Return True when text starts with a known /command."""
-        if not text.startswith("/"):
+        """Return True when text starts with a known !command."""
+        if not text.strip().startswith("!"):
             return False
-        first_word = text.split()[0].lower()
+        first_word = text.strip().split()[0].lower()
         return first_word in _COMMANDS
+
+    def looks_like_command(self, text: str) -> bool:
+        """Return True when text starts with '!' (known or unknown command)."""
+        return text.strip().startswith("!")
 
     def handle(self, chat_id: str, text: str) -> str:
         """
@@ -58,26 +62,26 @@ class CommandRouter:
 
         logger.info("Command %r from chat %s (arg=%r)", cmd, chat_id, arg)
 
-        if cmd == "/status":
+        if cmd == "!status":
             return self._handle_status(chat_id)
-        if cmd == "/stop":
+        if cmd == "!stop":
             return self._handle_stop(chat_id)
-        if cmd == "/new":
+        if cmd == "!new":
             return self._handle_new(chat_id)
-        if cmd == "/reset":
+        if cmd == "!reset":
             return self._handle_reset(chat_id)
-        if cmd == "/cwd":
+        if cmd == "!cwd":
             return self._handle_cwd(chat_id, arg)
-        if cmd == "/task":
+        if cmd == "!task":
             return self._handle_task(chat_id, arg)
-        if cmd == "/soul":
+        if cmd == "!soul":
             return self._handle_soul()
-        if cmd == "/whoami":
+        if cmd == "!whoami":
             return self._handle_whoami()
-        if cmd == "/memory":
+        if cmd == "!memory":
             return self._handle_memory()
 
-        return "Unknown command. Available: /status /stop /new /reset /cwd /task /soul /whoami /memory"  # noqa: E501
+        return "Unknown command. Available: !status !stop !new !reset !cwd !task !soul !whoami !memory"  # noqa: E501
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -146,7 +150,7 @@ class CommandRouter:
 
     def _handle_cwd(self, chat_id: str, path: str) -> str:
         if not path:
-            return "Usage: /cwd <absolute path>"
+            return "Usage: !cwd <absolute path>"
 
         path = path.strip()
         if not os.path.isabs(path):
@@ -171,7 +175,7 @@ class CommandRouter:
 
     def _handle_task(self, chat_id: str, name: str) -> str:
         if not name:
-            return "Usage: /task <name>"
+            return "Usage: !task <name>"
 
         state = self._db.get_chat(chat_id)
         if state is None:

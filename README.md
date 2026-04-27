@@ -50,12 +50,15 @@ For a separate dev bot, copy `config/settings.dev.yaml.example` to `config/setti
 
 | Command | Description |
 |---|---|
-| `/status` | Show current session, task, and working directory |
-| `/stop` | Cancel the running job |
-| `/new` | Force the next message to start a new session |
-| `/reset` | Clear the current session binding (history preserved) |
-| `/cwd /path/to/dir` | Change working directory (forces new session) |
-| `/task <name>` | Set a label for the current task |
+| `!status` | Show current session, task, and working directory |
+| `!stop` | Cancel the running job |
+| `!new` | Force the next message to start a new session |
+| `!reset` | Clear the current session binding (history preserved) |
+| `!cwd /path/to/dir` | Change working directory (forces new session) |
+| `!task <name>` | Set a label for the current task |
+| `!soul` | Show bot identity |
+| `!whoami` | Show user profile |
+| `!memory` | Show long-term memory |
 
 Any other message is sent to Claude Code as a prompt. Consecutive messages within 30 minutes resume the same session automatically.
 

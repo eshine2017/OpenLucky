@@ -74,8 +74,9 @@ class TelegramBot:
             await update.message.reply_text("Unauthorized.")
             return
 
-        # Command routing
-        if self._command_router.is_command(text):
+        # Command routing — any !-prefixed message goes to the router
+        # (unknown !cmd returns the help list instead of reaching Claude)
+        if self._command_router.looks_like_command(text):
             response = self._command_router.handle(chat_id, text)
             await update.message.reply_text(response)
             return

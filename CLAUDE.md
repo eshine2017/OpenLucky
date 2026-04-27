@@ -38,7 +38,7 @@ Telegram User
 TelegramBot (long-polling)
      │  dispatches messages
      ▼
-Daemon ──► CommandRouter (handles /commands)
+Daemon ──► CommandRouter (handles !commands)
      │
      ▼
 SessionManager (new vs resume decision)
@@ -63,7 +63,7 @@ Claude Code CLI  →  summary sent back to Telegram
 | `main.py` | Entry point — wires bot + daemon together |
 | `telegram_bot.py` | PTB long-polling; hands messages to daemon |
 | `daemon.py` | Job lifecycle orchestration; owns the event queue |
-| `command_router.py` | Parses and executes `/commands`; never touches Claude |
+| `command_router.py` | Parses and executes `!commands`; never touches Claude |
 | `session_manager.py` | Decides new vs resume; reads/writes `chats` table |
 | `agents/claude_code.py` | Spawns subprocess, cancels it, parses stream-json output |
 | `db.py` | SQLite init and CRUD |
@@ -90,7 +90,7 @@ Key constraints:
 Resume current session when **all** conditions are met:
 - `active_session_id` exists
 - Last activity < 30 minutes ago
-- No `/new` flag set
+- No `!new` flag set
 - Message looks like a follow-up (keywords: 继续, 刚才, 再试, continue, fix this too, run again, etc.)
 
 Otherwise: new session.
@@ -99,12 +99,15 @@ Otherwise: new session.
 
 | Command | Behavior |
 |---|---|
-| `/status` | Current status, task name, cwd, last job time |
-| `/stop` | Terminate current subprocess → job=canceled, chat=idle |
-| `/new` | Force next message to open a new session |
-| `/reset` | Clear active_session_id binding (history kept) |
-| `/cwd /path` | Switch working directory, force new session |
-| `/task name` | Set active task name |
+| `!status` | Current status, task name, cwd, last job time |
+| `!stop` | Terminate current subprocess → job=canceled, chat=idle |
+| `!new` | Force next message to open a new session |
+| `!reset` | Clear active_session_id binding (history kept) |
+| `!cwd /path` | Switch working directory, force new session |
+| `!task name` | Set active task name |
+| `!soul` | Show bot identity (SOUL.md) |
+| `!whoami` | Show user profile (USER.md) |
+| `!memory` | Show long-term memory (MEMORY.md) |
 
 ## Debugging
 

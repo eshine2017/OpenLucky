@@ -22,7 +22,7 @@ def mock_daemon():
 @pytest.fixture()
 def mock_command_router():
     router = MagicMock()
-    router.is_command = MagicMock(return_value=False)
+    router.looks_like_command = MagicMock(return_value=False)
     router.handle = MagicMock(return_value="command response")
     return router
 
@@ -144,21 +144,21 @@ class TestAuthorization:
 class TestCommandRouting:
     @pytest.mark.asyncio
     async def test_command_routed_to_command_router(self, bot_no_restrictions, mock_command_router):
-        mock_command_router.is_command.return_value = True
+        mock_command_router.looks_like_command.return_value = True
         mock_command_router.handle.return_value = "status: idle"
-        update = _make_update(user_id=1, chat_id="42", text="/status")
+        update = _make_update(user_id=1, chat_id="42", text="!status")
         ctx = _make_context()
 
         await bot_no_restrictions._on_text_message(update, ctx)
 
-        mock_command_router.is_command.assert_called_once_with("/status")
-        mock_command_router.handle.assert_called_once_with("42", "/status")
+        mock_command_router.looks_like_command.assert_called_once_with("!status")
+        mock_command_router.handle.assert_called_once_with("42", "!status")
         update.message.reply_text.assert_called_once_with("status: idle")
 
     @pytest.mark.asyncio
     async def test_command_does_not_reach_daemon(self, bot_no_restrictions, mock_command_router):
-        mock_command_router.is_command.return_value = True
-        update = _make_update(user_id=1, chat_id="42", text="/stop")
+        mock_command_router.looks_like_command.return_value = True
+        update = _make_update(user_id=1, chat_id="42", text="!stop")
         ctx = _make_context()
 
         await bot_no_restrictions._on_text_message(update, ctx)
@@ -166,8 +166,22 @@ class TestCommandRouting:
         bot_no_restrictions._daemon.on_message.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_unknown_bang_command_does_not_reach_daemon(
+        self, bot_no_restrictions, mock_command_router
+    ):
+        mock_command_router.looks_like_command.return_value = True
+        mock_command_router.handle.return_value = "Unknown command. Available: !status ..."
+        update = _make_update(user_id=1, chat_id="42", text="!nope")
+        ctx = _make_context()
+
+        await bot_no_restrictions._on_text_message(update, ctx)
+
+        bot_no_restrictions._daemon.on_message.assert_not_called()
+        update.message.reply_text.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_non_command_reaches_daemon(self, bot_no_restrictions, mock_command_router):
-        mock_command_router.is_command.return_value = False
+        mock_command_router.looks_like_command.return_value = False
         update = _make_update(user_id=1, chat_id="42", text="write me a test")
         ctx = _make_context()
 

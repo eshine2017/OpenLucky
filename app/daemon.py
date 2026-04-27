@@ -81,7 +81,7 @@ class Daemon:
             logger.info("Chat %s is busy (job=%s); rejecting new message", chat_id, active_job_id)
             self._send(
                 chat_id,
-                "A task is already running. Wait for it to finish or send /stop to cancel.",
+                "A task is already running. Wait for it to finish or send !stop to cancel.",
             )
             return
 
