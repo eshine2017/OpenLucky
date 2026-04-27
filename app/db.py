@@ -70,7 +70,8 @@ def init(db_path: str, data_dir: str | None = None) -> None:
                 status TEXT,
                 last_active_at TEXT,
                 last_summary TEXT,
-                force_new_next INTEGER NOT NULL DEFAULT 0
+                force_new_next INTEGER NOT NULL DEFAULT 0,
+                bootstrap_session_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS jobs (
@@ -98,7 +99,21 @@ def init(db_path: str, data_dir: str | None = None) -> None:
         """)
         _conn.commit()
 
+        _migrate(_conn)
+
     logger.info("Database initialised at %s", db_path)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the initial schema without dropping existing data."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(chats)")
+    existing = {row[1] for row in cur.fetchall()}
+
+    if "bootstrap_session_id" not in existing:
+        conn.execute("ALTER TABLE chats ADD COLUMN bootstrap_session_id TEXT")
+        conn.commit()
+        logger.info("Migration: added bootstrap_session_id column to chats")
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +139,7 @@ def get_chat(chat_id: str) -> ChatState | None:
         last_active_at=row["last_active_at"],
         last_summary=row["last_summary"],
         force_new_next=bool(row["force_new_next"]),
+        bootstrap_session_id=row["bootstrap_session_id"],
     )
 
 
@@ -134,16 +150,18 @@ def upsert_chat(state: ChatState) -> None:
             """
             INSERT INTO chats
                 (telegram_chat_id, active_session_id, active_task_name, cwd,
-                 status, last_active_at, last_summary, force_new_next)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 status, last_active_at, last_summary, force_new_next,
+                 bootstrap_session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_chat_id) DO UPDATE SET
-                active_session_id = excluded.active_session_id,
-                active_task_name  = excluded.active_task_name,
-                cwd               = excluded.cwd,
-                status            = excluded.status,
-                last_active_at    = excluded.last_active_at,
-                last_summary      = excluded.last_summary,
-                force_new_next    = excluded.force_new_next
+                active_session_id    = excluded.active_session_id,
+                active_task_name     = excluded.active_task_name,
+                cwd                  = excluded.cwd,
+                status               = excluded.status,
+                last_active_at       = excluded.last_active_at,
+                last_summary         = excluded.last_summary,
+                force_new_next       = excluded.force_new_next,
+                bootstrap_session_id = excluded.bootstrap_session_id
             """,
             (
                 state.telegram_chat_id,
@@ -154,6 +172,7 @@ def upsert_chat(state: ChatState) -> None:
                 state.last_active_at,
                 state.last_summary,
                 int(state.force_new_next),
+                state.bootstrap_session_id,
             ),
         )
         conn.commit()

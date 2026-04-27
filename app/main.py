@@ -25,6 +25,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E4
 
 from app import config, db  # noqa: E402
 from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
+from app.bootstrap import BootstrapChecker  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.context_builder import ContextBuilder  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
@@ -81,6 +82,10 @@ def main() -> None:
     _bootstrap_workspace(settings.workspace_dir)
 
     context_builder = ContextBuilder(workspace_dir=settings.workspace_dir)
+    bootstrap_checker = BootstrapChecker(
+        workspace_dir=settings.workspace_dir,
+        templates_dir=settings.templates_dir,
+    )
 
     claude_agent = ClaudeCodeAgent(
         claude_bin=settings.claude_bin,
@@ -97,6 +102,7 @@ def main() -> None:
         db=db,
         agent=claude_agent,
         context_builder=context_builder,
+        bootstrap_checker=bootstrap_checker,
     )
 
     # 4. Thread-safe send_message callback for the Daemon.
@@ -143,6 +149,7 @@ def main() -> None:
         jobs_dir=settings.jobs_dir,
         default_cwd=settings.work_dir,
         context_builder=context_builder,
+        bootstrap_checker=bootstrap_checker,
     )
 
     bot = TelegramBot(

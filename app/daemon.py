@@ -17,8 +17,9 @@ from typing import Any
 
 from app import formatter
 from app.agents.base import BaseAgent
+from app.bootstrap import BootstrapChecker, BootstrapState, BootstrapStatus, is_complete_signal
 from app.context_builder import ContextBuilder
-from app.models import ChatState, ChatStatus, Job, JobStatus, SessionDecision
+from app.models import ChatState, ChatStatus, Job, JobStatus, RunResult, SessionDecision
 from app.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -39,18 +40,8 @@ class Daemon:
         jobs_dir: str,
         default_cwd: str = "/tmp/openlucky_work",
         context_builder: ContextBuilder | None = None,
+        bootstrap_checker: BootstrapChecker | None = None,
     ) -> None:
-        """
-        Parameters
-        ----------
-        db_module:        The app.db module (or compatible object with its functions).
-        agent:            Agent instance (implements BaseAgent protocol).
-        session_manager:  SessionManager instance.
-        send_message_fn:  Callable(chat_id, text) that delivers a message to Telegram.
-        jobs_dir:         Directory where raw job output logs are written.
-        default_cwd:      Fallback working directory when chat has none set.
-        context_builder:  Optional ContextBuilder for prepending identity/memory prefix.
-        """
         self._db = db_module
         self._agent = agent
         self._session_manager = session_manager
@@ -58,6 +49,7 @@ class Daemon:
         self._jobs_dir = jobs_dir
         self._default_cwd = default_cwd
         self._context_builder = context_builder
+        self._bootstrap_checker = bootstrap_checker
 
         # chat_id → job_id for currently running jobs
         self.running_locks: dict[str, str] = {}
@@ -90,13 +82,25 @@ class Daemon:
         if chat_state is None:
             chat_state = ChatState(telegram_chat_id=chat_id)
 
-        # Honour the force_new_next flag
+        # Bootstrap check — evaluated on every message before normal session logic.
+        # force_new_next and SessionManager are bypassed when bootstrap is active.
+        if self._bootstrap_checker is not None:
+            bs = self._bootstrap_checker.check(chat_state)
+            if bs.state != BootstrapState.COMPLETE:
+                if bs.state == BootstrapState.NEEDED:
+                    logger.info(
+                        "bootstrap: re-triggered for chat %s (soul=%s user=%s)",
+                        chat_id, bs.soul, bs.user,
+                    )
+                self._launch_bootstrap_job(chat_id, text, chat_state, bs)
+                return
+
+        # Normal path — honour the force_new_next flag then decide session mode
         force_new = chat_state.force_new_next
         if force_new:
             chat_state.force_new_next = False  # consume the flag
             self._db.upsert_chat(chat_state)
 
-        # Decide session mode
         decision = self._session_manager.decide(chat_state, text, force_new=force_new)
 
         # Build job record
@@ -127,7 +131,83 @@ class Daemon:
         logger.info("Launched thread for job %s (chat=%s)", job_id, chat_id)
 
     # ------------------------------------------------------------------
-    # Prompt construction
+    # Bootstrap job launch
+    # ------------------------------------------------------------------
+
+    def _launch_bootstrap_job(
+        self,
+        chat_id: str,
+        text: str,
+        chat_state: ChatState,
+        bs: BootstrapStatus,
+    ) -> None:
+        """Prepare and launch a bootstrap job in a background thread."""
+        # Archive any existing normal session before starting fresh bootstrap
+        if bs.state == BootstrapState.NEEDED and chat_state.active_session_id:
+            cwd = chat_state.cwd or self._default_cwd
+            self._db.archive_session(
+                chat_state.active_session_id,
+                chat_id,
+                chat_state.active_task_name,
+                cwd,
+            )
+            chat_state = replace(chat_state, active_session_id=None)
+            self._db.upsert_chat(chat_state)
+            logger.info("bootstrap: archived existing session for chat %s", chat_id)
+
+        if bs.state == BootstrapState.NEEDED:
+            logger.info("bootstrap: NEEDED → starting new session for chat %s", chat_id)
+            assert self._bootstrap_checker is not None
+            prompt = (
+                self._bootstrap_checker.load_bootstrap_prompt()
+                + "\n\n# First message\n"
+                + text
+            )
+            session_id = None
+            self._send(
+                chat_id,
+                "First-time setup — let me ask a few quick questions to get to know you.",
+            )
+        else:
+            logger.info(
+                "bootstrap: IN_PROGRESS → resuming session %s for chat %s",
+                bs.session_id,
+                chat_id,
+            )
+            prompt = text
+            session_id = bs.session_id
+
+        decision = SessionDecision(
+            mode="new" if session_id is None else "resume",
+            session_id=session_id,
+        )
+
+        job_id = str(uuid.uuid4())
+        raw_output_path = os.path.join(self._jobs_dir, f"{job_id}.log")
+        job = Job(
+            job_id=job_id,
+            telegram_chat_id=chat_id,
+            session_id=session_id,
+            user_message=text,
+            status=JobStatus.queued,
+        )
+        self._db.create_job(job)
+
+        with self._lock:
+            self.running_locks[chat_id] = job_id
+
+        thread = threading.Thread(
+            target=self._run_job,
+            args=(job, decision, chat_state, raw_output_path),
+            kwargs={"is_bootstrap": True, "bootstrap_prompt": prompt},
+            daemon=True,
+            name=f"bootstrap-{job_id[:8]}",
+        )
+        thread.start()
+        logger.info("Launched bootstrap thread for job %s (chat=%s)", job_id, chat_id)
+
+    # ------------------------------------------------------------------
+    # Prompt construction (normal path)
     # ------------------------------------------------------------------
 
     def _build_prompt(self, user_message: str, mode: str) -> str:
@@ -156,6 +236,8 @@ class Daemon:
         decision: SessionDecision,
         chat_state: ChatState,
         raw_output_path: str,
+        is_bootstrap: bool = False,
+        bootstrap_prompt: str | None = None,
     ) -> None:
         chat_id = job.telegram_chat_id
 
@@ -168,23 +250,27 @@ class Daemon:
             chat_state = replace(chat_state, status=ChatStatus.running)
             self._db.upsert_chat(chat_state)
 
-            # Determine effective cwd
             cwd = chat_state.cwd or self._default_cwd
             task_name = chat_state.active_task_name or "untitled"
 
-            # --- Phase 1: start notification ---
-            self._send(
-                chat_id,
-                formatter.truncate_for_telegram(
-                    formatter.format_start(task_name, decision.mode, cwd)
-                ),
-            )
+            if not is_bootstrap:
+                # Start + running notifications (suppressed for bootstrap — we already
+                # sent "First-time setup..." from on_message / _launch_bootstrap_job)
+                self._send(
+                    chat_id,
+                    formatter.truncate_for_telegram(
+                        formatter.format_start(task_name, decision.mode, cwd)
+                    ),
+                )
+                self._send(chat_id, formatter.format_running())
 
-            # --- Phase 2: running notification ---
-            self._send(chat_id, formatter.format_running())
+            # Build prompt
+            if is_bootstrap:
+                prompt = bootstrap_prompt or job.user_message
+            else:
+                prompt = self._build_prompt(job.user_message, decision.mode)
 
-            # --- Phase 3: invoke agent ---
-            prompt = self._build_prompt(job.user_message, decision.mode)
+            # Invoke agent
             result = self._agent.run(
                 prompt=prompt,
                 cwd=cwd,
@@ -212,36 +298,37 @@ class Daemon:
             )
             self._db.update_job(job)
 
-            # Archive old session if switching to a new one
-            if decision.mode == "new" and chat_state.active_session_id:
-                self._db.archive_session(
-                    chat_state.active_session_id,
-                    chat_id,
-                    chat_state.active_task_name,
-                    cwd,
-                )
-
-            # Update chat state; on error, clear session so next message starts fresh
-            success = result.exit_code == 0
-            chat_state = replace(
-                chat_state,
-                active_session_id=result.session_id if success else None,
-                last_active_at=job.finished_at,
-                last_summary=result.summary,
-                status=ChatStatus.idle if success else ChatStatus.error,
-            )
-            self._db.upsert_chat(chat_state)
-
-            # --- Phase 4: result notification ---
-            if result.exit_code == 0:
-                msg = formatter.format_done(result.summary, result.exit_code, raw_output_path)
+            if is_bootstrap:
+                self._handle_bootstrap_result(job, chat_state, result)
             else:
-                msg = formatter.format_error(
-                    result.summary or result.stderr[:500] or "(no error output)",
-                    result.exit_code,
-                )
+                # Archive old session if switching to a new one
+                if decision.mode == "new" and chat_state.active_session_id:
+                    self._db.archive_session(
+                        chat_state.active_session_id,
+                        chat_id,
+                        chat_state.active_task_name,
+                        cwd,
+                    )
 
-            self._send(chat_id, formatter.truncate_for_telegram(msg))
+                # Update chat state; on error, clear session so next message starts fresh
+                success = result.exit_code == 0
+                chat_state = replace(
+                    chat_state,
+                    active_session_id=result.session_id if success else None,
+                    last_active_at=job.finished_at,
+                    last_summary=result.summary,
+                    status=ChatStatus.idle if success else ChatStatus.error,
+                )
+                self._db.upsert_chat(chat_state)
+
+                if result.exit_code == 0:
+                    msg = formatter.format_done(result.summary, result.exit_code, raw_output_path)
+                else:
+                    msg = formatter.format_error(
+                        result.summary or result.stderr[:500] or "(no error output)",
+                        result.exit_code,
+                    )
+                self._send(chat_id, formatter.truncate_for_telegram(msg))
 
         except Exception as exc:  # noqa: BLE001
             logger.exception("Job %s raised an exception: %s", job.job_id, exc)
@@ -271,3 +358,68 @@ class Daemon:
             with self._lock:
                 self.running_locks.pop(chat_id, None)
             logger.info("Released lock for chat %s (job=%s)", chat_id, job.job_id)
+
+    def _handle_bootstrap_result(
+        self,
+        job: Job,
+        chat_state: ChatState,
+        result: RunResult,
+    ) -> None:
+        """Post-job handler for bootstrap turns. Never touches active_session_id."""
+        chat_id = job.telegram_chat_id
+        new_bootstrap_session_id = result.session_id or chat_state.bootstrap_session_id
+
+        if result.exit_code != 0:
+            logger.warning(
+                "bootstrap: job failed (exit %d) for chat %s; keeping session_id for resume",
+                result.exit_code,
+                chat_id,
+            )
+            chat_state = replace(
+                chat_state,
+                bootstrap_session_id=new_bootstrap_session_id,
+                status=ChatStatus.idle,
+                last_active_at=job.finished_at,
+            )
+            self._db.upsert_chat(chat_state)
+            self._send(chat_id, "Something went wrong during setup. Try again when ready.")
+            return
+
+        # Store session_id for the next resume turn (even if not yet complete)
+        chat_state = replace(chat_state, bootstrap_session_id=new_bootstrap_session_id)
+
+        # Both signals required for completion: sentinel + file verification
+        if (
+            self._bootstrap_checker is not None
+            and is_complete_signal(result.stdout, result.summary)
+            and self._bootstrap_checker.check(chat_state).state == BootstrapState.COMPLETE
+        ):
+            logger.info("bootstrap: COMPLETE for chat %s", chat_id)
+            chat_state = replace(
+                chat_state,
+                bootstrap_session_id=None,
+                active_session_id=None,
+                status=ChatStatus.idle,
+                last_active_at=job.finished_at,
+                last_summary=result.summary,
+            )
+            self._db.upsert_chat(chat_state)
+            self._send(
+                chat_id,
+                "Setup complete! You can chat normally now.\n"
+                "(Your memory file fills as we work together — try !memory later.)",
+            )
+            return
+
+        # Still in progress — send Claude's response as the next bootstrap turn reply
+        chat_state = replace(
+            chat_state,
+            status=ChatStatus.idle,
+            last_active_at=job.finished_at,
+            last_summary=result.summary,
+        )
+        self._db.upsert_chat(chat_state)
+        self._send(
+            chat_id,
+            formatter.truncate_for_telegram(result.summary or "(no response)"),
+        )

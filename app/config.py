@@ -65,6 +65,10 @@ class Settings:
         return os.path.join(self._effective_data_dir, "workspace")
 
     @property
+    def templates_dir(self) -> str:
+        return os.path.join(_PROJECT_ROOT, "config", "templates")
+
+    @property
     def project_root(self) -> str:
         return _PROJECT_ROOT
 

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.bootstrap import BootstrapChecker
 from app.context_builder import ContextBuilder
 from app.formatter import truncate_for_telegram
 from app.models import ChatState, ChatStatus, JobStatus
@@ -27,10 +28,12 @@ class CommandRouter:
         db: Any,
         agent: BaseAgent,
         context_builder: ContextBuilder | None = None,
+        bootstrap_checker: BootstrapChecker | None = None,
     ) -> None:
         self._db = db
         self._agent = agent
         self._context_builder = context_builder
+        self._bootstrap_checker = bootstrap_checker
 
     # ------------------------------------------------------------------
     # Public API
@@ -99,6 +102,12 @@ class CommandRouter:
             f"Session: {state.active_session_id or '(none)'}",
             f"Last active: {state.last_active_at or '(never)'}",
         ]
+
+        if self._bootstrap_checker is not None:
+            bs = self._bootstrap_checker.check(state)
+            lines.append(f"Bootstrap: {bs.state.value}")
+            lines.append(f"Files: SOUL.md={bs.soul} USER.md={bs.user}")
+
         if state.last_summary:
             lines.append(f"\nLast summary:\n{state.last_summary[:500]}")
 
@@ -141,11 +150,18 @@ class CommandRouter:
             return "No active session to reset."
 
         old_session = state.active_session_id
+        old_bootstrap = state.bootstrap_session_id
         state.active_session_id = None
+        state.bootstrap_session_id = None  # escape hatch for stuck bootstrap
         self._db.upsert_chat(state)
 
-        if old_session:
-            return f"Session cleared ({old_session[:8]}...). History preserved."
+        if old_session or old_bootstrap:
+            parts = []
+            if old_session:
+                parts.append(f"session ({old_session[:8]}...)")
+            if old_bootstrap:
+                parts.append(f"bootstrap session ({old_bootstrap[:8]}...)")
+            return f"Cleared: {', '.join(parts)}. History preserved."
         return "No session was bound."
 
     def _handle_cwd(self, chat_id: str, path: str) -> str:
