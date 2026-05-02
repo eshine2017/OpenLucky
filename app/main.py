@@ -42,6 +42,9 @@ def _configure_logging(level: str) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    # httpx logs every getUpdates long-poll at INFO, flooding the log with noise.
+    # Incoming messages are still visible at INFO via telegram_bot.py's own log line.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _bootstrap_workspace(workspace_dir: str) -> None:
