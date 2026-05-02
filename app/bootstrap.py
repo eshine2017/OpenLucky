@@ -22,16 +22,20 @@ COMPLETION_SENTINEL = "[[BOOTSTRAP_COMPLETE]]"
 
 _FALLBACK_PROMPT = f"""# First-Time Setup
 
-You are helping a new user set up their personal assistant profile.
-Your goal is to fill in two files in the workspace:
-- `USER.md` — user profile (name, timezone, language, preferences, role, projects)
-- `SOUL.md` — bot identity (adjust tone/style based on what you learn)
+{{file_status}}
 
+You are helping a new user set up their personal assistant profile.
+Two files in the workspace need to be in shape:
+- `USER.md` — user profile (name, timezone, language, preferences, role, projects)
+- `SOUL.md` — bot identity (name and response style)
+
+Only ask questions about and write to files marked as needing to be filled in
+above. Leave files marked "already filled" untouched.
 Ask the user a few natural questions (1-2 per turn, conversational tone),
 then write the answers into the files using your Edit/Write tools.
 
-When both files are updated and the user has confirmed, output the following
-sentinel on its own line:
+When all needed files are updated and the user has confirmed, output the
+following sentinel on its own line:
 
 {COMPLETION_SENTINEL}
 """
@@ -91,8 +95,8 @@ class BootstrapChecker:
             session_id=chat_state.bootstrap_session_id,
         )
 
-    def load_bootstrap_prompt(self) -> str:
-        """Load config/templates/BOOTSTRAP.md and substitute {workspace_dir}.
+    def load_bootstrap_prompt(self, status: BootstrapStatus) -> str:
+        """Load config/templates/BOOTSTRAP.md and substitute {workspace_dir} and {file_status}.
 
         Uses str.replace (not str.format) to avoid KeyError if the path contains
         brace characters. Falls back to a hardcoded minimal prompt if the file
@@ -106,7 +110,24 @@ class BootstrapChecker:
             logger.warning("BOOTSTRAP.md not found at %s; using fallback prompt", path)
             content = _FALLBACK_PROMPT
 
-        return content.replace("{workspace_dir}", self._workspace_dir)
+        file_status_block = self._render_file_status(status)
+        return (
+            content
+            .replace("{workspace_dir}", self._workspace_dir)
+            .replace("{file_status}", file_status_block)
+        )
+
+    def _render_file_status(self, status: BootstrapStatus) -> str:
+        label: dict[str, str] = {
+            "filled":   "already filled — DO NOT modify or re-ask its questions",
+            "template": "still at template content — needs to be filled in",
+            "missing":  "missing — needs to be created and filled in",
+        }
+        return (
+            "Current file state:\n"
+            f"- USER.md: {label[status.user]}\n"
+            f"- SOUL.md: {label[status.soul]}"
+        )
 
     def _file_state(
         self,

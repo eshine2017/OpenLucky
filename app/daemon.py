@@ -161,7 +161,7 @@ class Daemon:
         if bs.state == BootstrapState.NEEDED:
             logger.info("bootstrap: NEEDED → starting new session for chat %s", chat_id)
             prompt = (
-                self._bootstrap_checker.load_bootstrap_prompt()
+                self._bootstrap_checker.load_bootstrap_prompt(bs)
                 + "\n\n# First message\n"
                 + text
             )
@@ -255,9 +255,10 @@ class Daemon:
             cwd = chat_state.cwd or self._default_cwd
             task_name = chat_state.active_task_name or "untitled"
 
-            if not is_bootstrap:
-                # Start + running notifications (suppressed for bootstrap — we already
-                # sent "First-time setup..." from on_message / _launch_bootstrap_job)
+            if not (is_bootstrap and decision.mode == "new"):
+                # Suppress only on the first bootstrap turn — "First-time setup..." was
+                # already sent. All other turns (normal or bootstrap resume) get the
+                # mode/running notification.
                 self._send(
                     chat_id,
                     formatter.truncate_for_telegram(

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.bootstrap import COMPLETION_SENTINEL, BootstrapChecker, BootstrapState, is_complete_signal
+from app.bootstrap import (
+    COMPLETION_SENTINEL,
+    BootstrapChecker,
+    BootstrapState,
+    BootstrapStatus,
+    is_complete_signal,
+)
 from app.models import ChatState
 
 # ---------------------------------------------------------------------------
@@ -45,6 +51,12 @@ def _chat(bootstrap_session_id: str | None = None) -> ChatState:
     return ChatState(
         telegram_chat_id="42",
         bootstrap_session_id=bootstrap_session_id,
+    )
+
+
+def _status_needed() -> BootstrapStatus:
+    return BootstrapStatus(
+        state=BootstrapState.NEEDED, soul="missing", user="missing", session_id=None
     )
 
 
@@ -224,24 +236,37 @@ class TestIsCompleteSignal:
 class TestLoadBootstrapPrompt:
     @pytest.mark.unit
     def test_returns_content(self, checker):
-        prompt = checker.load_bootstrap_prompt()
+        prompt = checker.load_bootstrap_prompt(_status_needed())
         assert "Setup" in prompt
         assert len(prompt) > 10
 
     @pytest.mark.unit
     def test_substitutes_workspace_dir(self, checker, workspace):
-        prompt = checker.load_bootstrap_prompt()
+        prompt = checker.load_bootstrap_prompt(_status_needed())
         assert str(workspace) in prompt
         assert "{workspace_dir}" not in prompt
+
+    @pytest.mark.unit
+    def test_substitutes_file_status(self, workspace, tmp_path):
+        td = tmp_path / "tpl2"
+        td.mkdir()
+        (td / "BOOTSTRAP.md").write_text(
+            "Status: {file_status}\nPath: {workspace_dir}", encoding="utf-8"
+        )
+        c = BootstrapChecker(str(workspace), str(td))
+        prompt = c.load_bootstrap_prompt(_status_needed())
+        assert "{file_status}" not in prompt
+        assert "Current file state:" in prompt
 
     @pytest.mark.unit
     def test_fallback_when_bootstrap_md_missing(self, workspace, tmp_path):
         empty_templates = tmp_path / "empty_templates"
         empty_templates.mkdir()
         c = BootstrapChecker(str(workspace), str(empty_templates))
-        prompt = c.load_bootstrap_prompt()
+        prompt = c.load_bootstrap_prompt(_status_needed())
         assert len(prompt) > 10  # fallback is non-empty
         assert "{workspace_dir}" not in prompt
+        assert "{file_status}" not in prompt
 
     @pytest.mark.unit
     def test_no_format_error_when_path_has_braces(self, workspace, tmp_path):
@@ -252,5 +277,54 @@ class TestLoadBootstrapPrompt:
         (td / "BOOTSTRAP.md").write_text("path: {workspace_dir}", encoding="utf-8")
         c = BootstrapChecker(str(braces_dir), str(td))
         # Must not raise KeyError
-        prompt = c.load_bootstrap_prompt()
+        prompt = c.load_bootstrap_prompt(_status_needed())
         assert str(braces_dir) in prompt
+
+
+# ---------------------------------------------------------------------------
+# _render_file_status
+# ---------------------------------------------------------------------------
+
+
+class TestRenderFileStatus:
+    @pytest.mark.unit
+    def test_both_filled(self, checker, workspace):
+        (workspace / "SOUL.md").write_text("filled soul", encoding="utf-8")
+        (workspace / "USER.md").write_text("filled user", encoding="utf-8")
+        status = checker.check(_chat())
+        block = checker._render_file_status(status)
+        assert block.count("already filled") == 2
+
+    @pytest.mark.unit
+    def test_both_template(self, checker, workspace):
+        (workspace / "SOUL.md").write_text(
+            "# Bot Identity\n\nTemplate content soul.", encoding="utf-8"
+        )
+        (workspace / "USER.md").write_text(
+            "# User Profile\n\nTemplate content user.", encoding="utf-8"
+        )
+        status = checker.check(_chat())
+        block = checker._render_file_status(status)
+        assert block.count("needs to be filled in") == 2
+
+    @pytest.mark.unit
+    def test_both_missing(self, checker):
+        status = checker.check(_chat())
+        block = checker._render_file_status(status)
+        assert block.count("missing") >= 2
+
+    @pytest.mark.unit
+    def test_mixed_soul_filled_user_missing(self, checker, workspace):
+        (workspace / "SOUL.md").write_text("custom soul", encoding="utf-8")
+        status = checker.check(_chat())
+        block = checker._render_file_status(status)
+        assert "SOUL.md: already filled" in block
+        assert "USER.md:" in block
+        assert "missing" in block
+
+    @pytest.mark.unit
+    def test_contains_both_filenames(self, checker):
+        status = checker.check(_chat())
+        block = checker._render_file_status(status)
+        assert "USER.md" in block
+        assert "SOUL.md" in block
