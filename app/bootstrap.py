@@ -32,7 +32,8 @@ Two files in the workspace need to be in shape:
 Only ask questions about and write to files marked as needing to be filled in
 above. Leave files marked "already filled" untouched.
 Ask the user a few natural questions (1-2 per turn, conversational tone),
-then write the answers into the files using your Edit/Write tools.
+then use the Edit tool to replace only the [[...]] markers with their answers.
+Never modify any other text in the files.
 
 When all needed files are updated and the user has confirmed, output the
 following sentinel on its own line:

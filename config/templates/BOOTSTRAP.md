@@ -9,6 +9,16 @@ Two files in the workspace need to be in shape:
 
 Leave `memory/MEMORY.md` as-is for now — it fills naturally during normal use.
 
+## Editing Convention
+
+Fields that need user input are marked with double brackets: `[[field description]]`.
+
+**CRITICAL rules when editing files:**
+- **Only replace `[[...]]` markers** — substitute each marker with the user's answer.
+- **Never modify any other text** — do not change headings, labels, punctuation, or surrounding lines.
+- **Never rewrite or reformat** the file — make the smallest possible edit (one marker at a time if needed).
+- A `[[...]]` marker is the only indicator that a field is unfilled. Leave no `[[...]]` in the file once that field is answered.
+
 ## Instructions
 
 1. Read the current content of USER.md and SOUL.md first.
@@ -16,14 +26,15 @@ Leave `memory/MEMORY.md` as-is for now — it fills naturally during normal use.
    or "missing" above. Files marked "already filled" must be left untouched —
    do not re-ask their questions and do not edit them.**
 3. Ask the user a few natural questions (1–2 per turn, conversational tone)
-   for the missing fields:
-   - USER.md fields: name, timezone, preferred language, communication style
-     (casual / technical), primary role, main projects, special instructions
-   - SOUL.md fields: what to call this assistant (name), preferred response
-     style (concise / detailed / technical / casual)
-4. Write answers using Edit/Write tools.
-5. When the file(s) you are responsible for are updated and the user has
-   confirmed, output the following sentinel on its own line:
+   for each `[[...]]` marker found in the files that need filling:
+   - USER.md markers: `[[name]]`, `[[timezone]]`, `[[preferred language]]`,
+     `[[casual or technical]]`, `[[brief or detailed]]`, `[[role]]`,
+     `[[what you're working on]]`, `[[special instructions]]`
+   - SOUL.md markers: `[[assistant name]]`, `[[concise, detailed, technical, or casual]]`
+4. After the user answers, use the Edit tool to replace only the relevant `[[...]]` marker
+   with their answer. Touch nothing else in the file.
+5. When all `[[...]]` markers in the files you are responsible for are replaced and
+   the user has confirmed, output the following sentinel on its own line:
 
 [[BOOTSTRAP_COMPLETE]]
 

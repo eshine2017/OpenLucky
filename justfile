@@ -49,6 +49,10 @@ typecheck: venv-check
 test: venv-check
     {{python}} -m pytest
 
+# Run a specific test file: just test-file tests/test_bootstrap.py
+test-file file: venv-check
+    {{python}} -m pytest {{file}} -v
+
 # Run tests with coverage (fails below 80%)
 test-cov: venv-check
     {{python}} -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80

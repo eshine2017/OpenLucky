@@ -18,6 +18,17 @@ just ci            # lint + typecheck + tests with coverage (mirrors CI)
 
 Run `just --list` to see all available commands.
 
+## Running Tests
+
+Always use `just` to run tests — never call pytest or activate the venv directly.
+
+```bash
+just test                              # run all tests
+just test-file tests/test_foo.py       # run a specific test file
+just test-cov                          # run with coverage (fails below 80%)
+just ci                                # lint + typecheck + test-cov (full CI)
+```
+
 ## Dev vs Prod
 
 Two separate bots and data directories to avoid conflicts:
