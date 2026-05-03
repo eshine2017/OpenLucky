@@ -133,6 +133,145 @@ class Daemon:
         logger.info("Launched thread for job %s (chat=%s)", job_id, chat_id)
 
     # ------------------------------------------------------------------
+    # Scheduled job entry point
+    # ------------------------------------------------------------------
+
+    def run_scheduled_job(
+        self,
+        *,
+        chat_id: str,
+        prompt: str,
+        cwd: str,
+        label: str,
+    ) -> str:
+        """
+        Dispatch a scheduled (non-interactive) job.
+
+        Returns one of: "dispatched", "skipped:busy",
+        "skipped:bootstrap", "skipped:no_chat".
+
+        Critical: the background thread must NOT mutate ChatState.active_session_id,
+        last_active_at, or last_summary — scheduled runs are transient and must not
+        corrupt the user's interactive session.
+        """
+        chat_state = self._db.get_chat(chat_id)
+        if chat_state is None:
+            logger.info("Scheduled job %r skipped: no chat %s", label, chat_id)
+            return "skipped:no_chat"
+
+        if self._bootstrap_checker is not None:
+            bs = self._bootstrap_checker.check(chat_state)
+            if bs.state != BootstrapState.COMPLETE:
+                logger.info("Scheduled job %r skipped: bootstrap incomplete for %s", label, chat_id)
+                return "skipped:bootstrap"
+
+        job_id = str(uuid.uuid4())
+        raw_output_path = os.path.join(self._jobs_dir, f"{job_id}.log")
+        job = Job(
+            job_id=job_id,
+            telegram_chat_id=chat_id,
+            session_id=None,
+            user_message=f"[{label}]",
+            status=JobStatus.queued,
+            kind="scheduled",
+        )
+
+        with self._lock:
+            if chat_id in self.running_locks:
+                logger.info("Scheduled job %r skipped: chat %s is busy", label, chat_id)
+                return "skipped:busy"
+            self.running_locks[chat_id] = job_id
+
+        try:
+            self._db.create_job(job)
+        except Exception:
+            with self._lock:
+                self.running_locks.pop(chat_id, None)
+            raise
+
+        thread = threading.Thread(
+            target=self._run_scheduled_job_thread,
+            args=(job, chat_state, prompt, cwd, raw_output_path),
+            daemon=True,
+            name=f"sched-{label}-{job_id[:8]}",
+        )
+        thread.start()
+        logger.info("Launched scheduled job %s label=%r (chat=%s)", job_id, label, chat_id)
+        return "dispatched"
+
+    def _run_scheduled_job_thread(
+        self,
+        job: Job,
+        chat_state: ChatState,
+        prompt: str,
+        cwd: str,
+        raw_output_path: str,
+    ) -> None:
+        chat_id = job.telegram_chat_id
+
+        try:
+            job = replace(job, status=JobStatus.running, started_at=datetime.now(UTC).isoformat())
+            self._db.update_job(job)
+
+            result = self._agent.run(
+                prompt=prompt,
+                cwd=cwd,
+                session_id=None,
+                job_id=job.job_id,
+            )
+
+            os.makedirs(os.path.dirname(raw_output_path), exist_ok=True)
+            with open(raw_output_path, "w", encoding="utf-8") as fh:
+                fh.write(result.stdout)
+                if result.stderr:
+                    fh.write("\n--- STDERR ---\n")
+                    fh.write(result.stderr)
+
+            job = replace(
+                job,
+                status=JobStatus.done if result.exit_code == 0 else JobStatus.failed,
+                finished_at=datetime.now(UTC).isoformat(),
+                exit_code=result.exit_code,
+                result_summary=result.summary,
+                raw_output_path=raw_output_path,
+            )
+            self._db.update_job(job)
+
+            if result.exit_code == 0:
+                msg = formatter.truncate_for_telegram(result.summary or "(no summary)")
+            else:
+                msg = formatter.truncate_for_telegram(
+                    formatter.format_error(
+                        result.summary or result.stderr[:500] or "(no error output)",
+                        result.exit_code,
+                    )
+                )
+            self._send(chat_id, msg)
+
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Scheduled job %s raised an exception: %s", job.job_id, exc)
+            try:
+                job = replace(
+                    job,
+                    status=JobStatus.failed,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    exit_code=-1,
+                    result_summary=str(exc),
+                )
+                self._db.update_job(job)
+                self._send(
+                    chat_id,
+                    formatter.truncate_for_telegram(formatter.format_error(str(exc), -1)),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to update db/Telegram after scheduled job error")
+
+        finally:
+            with self._lock:
+                self.running_locks.pop(chat_id, None)
+            logger.info("Released lock for chat %s (scheduled job=%s)", chat_id, job.job_id)
+
+    # ------------------------------------------------------------------
     # Bootstrap job launch
     # ------------------------------------------------------------------
 

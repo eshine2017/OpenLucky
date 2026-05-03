@@ -29,6 +29,8 @@ from app.bootstrap import BootstrapChecker  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.context_builder import ContextBuilder  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
+from app.digest import build_morning_digest_prompt, read_user_timezone  # noqa: E402
+from app.scheduler import CronJob, CronSchedule, Scheduler  # noqa: E402
 from app.session_manager import SessionManager  # noqa: E402
 from app.telegram_bot import TelegramBot  # noqa: E402
 
@@ -105,13 +107,6 @@ def main() -> None:
         timeout_minutes=settings.session_timeout_minutes,
     )
 
-    command_router = CommandRouter(
-        db=db,
-        agent=claude_agent,
-        context_builder=context_builder,
-        bootstrap_checker=bootstrap_checker,
-    )
-
     # 4. Thread-safe send_message callback for the Daemon.
     #
     #    PTB v20's run_polling() manages its own event loop internally.
@@ -138,16 +133,66 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.error("send_message failed for chat %s: %s", chat_id, exc)
 
-    # 5. Build the Telegram Application with a post_init hook that captures
-    #    the running event loop once PTB has started it.
+    # 5. Build scheduler and its callback.
+    scheduler_store = os.path.join(settings._effective_data_dir, "scheduler.json")
+
+    async def _scheduler_callback(job: CronJob) -> None:
+        kind = job.payload.get("kind")
+        if kind == "morning_digest":
+            chat = db.get_most_recent_chat()
+            if chat is None:
+                logger.info("Digest skipped: no chats in DB")
+                return
+            prompt = build_morning_digest_prompt(settings.second_brain_dir)
+            if prompt is None:
+                logger.info("Digest skipped: no second brain sources")
+                return
+            result = daemon.run_scheduled_job(
+                chat_id=chat.telegram_chat_id,
+                prompt=prompt,
+                cwd=chat.cwd or settings.work_dir,
+                label="morning-digest",
+            )
+            logger.info("Digest dispatch result: %s (chat=%s)", result, chat.telegram_chat_id)
+        else:
+            logger.warning("Unknown scheduler job kind: %r", kind)
+
+    scheduler = Scheduler(store_path=scheduler_store, on_job=_scheduler_callback)
+
+    # 6. Build the Telegram Application with a post_init hook that captures
+    #    the running event loop and starts the scheduler.
 
     async def _post_init(_app: Any) -> None:
-        _loop_ref.append(asyncio.get_running_loop())
-        logger.info("Event loop captured; bot is ready.")
+        loop = asyncio.get_running_loop()
+        _loop_ref.append(loop)
+        scheduler._loop = loop
 
-    tg_app = ApplicationBuilder().token(settings.telegram_bot_token).post_init(_post_init).build()
+        # Ensure the default morning digest job exists (create-if-missing)
+        tz = read_user_timezone(settings.workspace_dir) or "America/Los_Angeles"
+        scheduler.ensure_job(
+            CronJob(
+                id="system:morning_digest",
+                name="Morning digest",
+                schedule=CronSchedule(kind="cron", expr="0 8 * * *", tz=tz),
+                payload={"kind": "morning_digest"},
+            )
+        )
 
-    # 6. Create Daemon and TelegramBot.
+        await scheduler.start()
+        logger.info("Event loop captured; scheduler started; bot is ready.")
+
+    async def _post_shutdown(_app: Any) -> None:
+        await scheduler.stop()
+
+    tg_app = (
+        ApplicationBuilder()
+        .token(settings.telegram_bot_token)
+        .post_init(_post_init)
+        .post_shutdown(_post_shutdown)
+        .build()
+    )
+
+    # 7. Create Daemon and TelegramBot.
     daemon = Daemon(
         db_module=db,
         agent=claude_agent,
@@ -159,6 +204,14 @@ def main() -> None:
         bootstrap_checker=bootstrap_checker,
     )
 
+    command_router = CommandRouter(
+        db=db,
+        agent=claude_agent,
+        context_builder=context_builder,
+        bootstrap_checker=bootstrap_checker,
+        scheduler=scheduler,
+    )
+
     bot = TelegramBot(
         token=settings.telegram_bot_token,
         allowed_users=settings.allowed_users,
@@ -168,7 +221,7 @@ def main() -> None:
     bot._app = tg_app
     tg_app.add_handler(MessageHandler(filters.TEXT, bot._on_text_message))
 
-    # 7. Hand control to PTB — it creates and manages its own event loop.
+    # 8. Hand control to PTB — it creates and manages its own event loop.
     logger.info("Bot polling started.")
     tg_app.run_polling(drop_pending_updates=True)
 

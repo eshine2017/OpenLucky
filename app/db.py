@@ -104,16 +104,18 @@ def init(db_path: str, data_dir: str | None = None) -> None:
     logger.info("Database initialised at %s", db_path)
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        conn.commit()
+        logger.info("Migration: added %s.%s", table, column)
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after the initial schema without dropping existing data."""
-    cur = conn.cursor()
-    cur.execute("PRAGMA table_info(chats)")
-    existing = {row[1] for row in cur.fetchall()}
-
-    if "bootstrap_session_id" not in existing:
-        conn.execute("ALTER TABLE chats ADD COLUMN bootstrap_session_id TEXT")
-        conn.commit()
-        logger.info("Migration: added bootstrap_session_id column to chats")
+    _ensure_column(conn, "chats", "bootstrap_session_id", "TEXT")
+    _ensure_column(conn, "jobs", "kind", "TEXT")
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +187,31 @@ def upsert_chat(state: ChatState) -> None:
 # ---------------------------------------------------------------------------
 
 
+def get_most_recent_chat() -> ChatState | None:
+    """Return the chat with the most recent last_active_at, or None."""
+    with _lock:
+        cur = _get_conn().cursor()
+        cur.execute(
+            "SELECT * FROM chats ORDER BY last_active_at DESC LIMIT 1",
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return ChatState(
+        telegram_chat_id=row["telegram_chat_id"],
+        active_session_id=row["active_session_id"],
+        active_task_name=row["active_task_name"],
+        cwd=row["cwd"],
+        status=ChatStatus(row["status"]) if row["status"] else ChatStatus.idle,
+        last_active_at=row["last_active_at"],
+        last_summary=row["last_summary"],
+        force_new_next=bool(row["force_new_next"]),
+        bootstrap_session_id=row["bootstrap_session_id"],
+    )
+
+
 def create_job(job: Job) -> None:
     with _lock:
         conn = _get_conn()
@@ -192,8 +219,8 @@ def create_job(job: Job) -> None:
             """
             INSERT INTO jobs
                 (job_id, telegram_chat_id, session_id, user_message, status,
-                 started_at, finished_at, exit_code, result_summary, raw_output_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 started_at, finished_at, exit_code, result_summary, raw_output_path, kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.job_id,
@@ -206,6 +233,7 @@ def create_job(job: Job) -> None:
                 job.exit_code,
                 job.result_summary,
                 job.raw_output_path,
+                job.kind,
             ),
         )
         conn.commit()
@@ -225,7 +253,8 @@ def update_job(job: Job) -> None:
                 finished_at     = ?,
                 exit_code       = ?,
                 result_summary  = ?,
-                raw_output_path = ?
+                raw_output_path = ?,
+                kind            = ?
             WHERE job_id = ?
             """,
             (
@@ -236,6 +265,7 @@ def update_job(job: Job) -> None:
                 job.exit_code,
                 job.result_summary,
                 job.raw_output_path,
+                job.kind,
                 job.job_id,
             ),
         )
@@ -273,6 +303,7 @@ def get_active_job(chat_id: str) -> Job | None:
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
+    keys = row.keys()
     return Job(
         job_id=row["job_id"],
         telegram_chat_id=row["telegram_chat_id"],
@@ -284,6 +315,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         exit_code=row["exit_code"],
         result_summary=row["result_summary"],
         raw_output_path=row["raw_output_path"],
+        kind=row["kind"] if "kind" in keys else None,
     )
 
 

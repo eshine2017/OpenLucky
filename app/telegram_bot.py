@@ -4,6 +4,7 @@ telegram_bot.py — Telegram long-polling bot using python-telegram-bot v20 (asy
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -46,7 +47,7 @@ class TelegramBot:
         self._app = ApplicationBuilder().token(self._token).build()
         self._app.add_handler(MessageHandler(filters.TEXT, self._on_text_message))
         logger.info("Starting Telegram bot (long-polling)…")
-        await self._app.run_polling(drop_pending_updates=True)  # type: ignore[misc, func-returns-value]
+        await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value]
 
     def get_application(self) -> _App:
         """Return the underlying Application (needed to send messages from threads)."""
@@ -77,7 +78,8 @@ class TelegramBot:
         # Command routing — any !-prefixed message goes to the router
         # (unknown !cmd returns the help list instead of reaching Claude)
         if self._command_router.looks_like_command(text):
-            response = self._command_router.handle(chat_id, text)
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, self._command_router.handle, chat_id, text)
             await update.message.reply_text(response)
             return
 

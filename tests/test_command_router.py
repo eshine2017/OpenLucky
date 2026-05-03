@@ -269,3 +269,122 @@ class TestMemoryCommands:
         assert router.is_command("!soul") is True
         assert router.is_command("!whoami") is True
         assert router.is_command("!memory") is True
+
+
+class TestDigestCommand:
+    def test_no_scheduler_returns_not_configured(self, router) -> None:
+        result = router.handle("1", "!digest")
+        assert "not configured" in result
+
+    def test_no_loop_returns_unavailable(self, mock_db, mock_claude_agent) -> None:
+        mock_scheduler = MagicMock()
+        mock_scheduler._loop = None
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!digest")
+        assert "not available" in result
+
+    def test_loop_not_running_returns_unavailable(self, mock_db, mock_claude_agent) -> None:
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = False
+        mock_scheduler = MagicMock()
+        mock_scheduler._loop = mock_loop
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!digest")
+        assert "not available" in result
+
+    def test_digest_triggered_returns_success(self, mock_db, mock_claude_agent) -> None:
+        import concurrent.futures
+        import unittest.mock
+
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+
+        future: concurrent.futures.Future[bool] = concurrent.futures.Future()
+        future.set_result(True)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler._loop = mock_loop
+
+        with unittest.mock.patch("asyncio.run_coroutine_threadsafe", return_value=future):
+            r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+            result = r.handle("1", "!digest")
+
+        assert "triggered" in result
+
+    def test_digest_not_found_returns_not_found(self, mock_db, mock_claude_agent) -> None:
+        import concurrent.futures
+        import unittest.mock
+
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        future: concurrent.futures.Future[bool] = concurrent.futures.Future()
+        future.set_result(False)
+
+        mock_scheduler = MagicMock()
+        mock_scheduler._loop = mock_loop
+
+        with unittest.mock.patch("asyncio.run_coroutine_threadsafe", return_value=future):
+            r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+            result = r.handle("1", "!digest")
+
+        assert "not found" in result
+
+
+class TestScheduleCommand:
+    def test_no_scheduler_returns_not_configured(self, router) -> None:
+        result = router.handle("1", "!schedule list")
+        assert "not configured" in result
+
+    def test_unknown_subcommand(self, mock_db, mock_claude_agent) -> None:
+        mock_scheduler = MagicMock()
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!schedule pause")
+        assert "Usage" in result
+
+    def test_list_empty(self, mock_db, mock_claude_agent) -> None:
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_jobs.return_value = []
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!schedule list")
+        assert "No scheduled jobs" in result
+
+    def test_list_with_jobs(self, mock_db, mock_claude_agent) -> None:
+        from app.scheduler import CronJob, CronJobState, CronSchedule
+
+        job = CronJob(
+            id="system:morning_digest",
+            name="Morning digest",
+            schedule=CronSchedule(kind="cron", expr="0 8 * * *", tz="UTC"),
+            payload={"kind": "morning_digest"},
+            enabled=True,
+            state=CronJobState(next_run_at_ms=1_700_000_000_000, last_status="ok"),
+        )
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_jobs.return_value = [job]
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!schedule list")
+
+        assert "system:morning_digest" in result
+        assert "Morning digest" in result
+        assert "ok" in result
+
+    def test_list_disabled_job_shows_x(self, mock_db, mock_claude_agent) -> None:
+        from app.scheduler import CronJob, CronJobState, CronSchedule
+
+        job = CronJob(
+            id="j1",
+            name="Disabled job",
+            schedule=CronSchedule(kind="every", every_ms=60_000),
+            payload={},
+            enabled=False,
+            state=CronJobState(),
+        )
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_jobs.return_value = [job]
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
+        result = r.handle("1", "!schedule list")
+        assert "✗" in result
+
+    def test_schedule_command_recognised(self, router) -> None:
+        assert router.is_command("!digest") is True
+        assert router.is_command("!schedule") is True

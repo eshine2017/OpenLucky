@@ -48,6 +48,7 @@ class Job:
     exit_code: int | None = None
     result_summary: str | None = None
     raw_output_path: str | None = None
+    kind: str | None = None
 
 
 @dataclass

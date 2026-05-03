@@ -20,7 +20,10 @@ from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {"!status", "!stop", "!new", "!reset", "!cwd", "!task", "!soul", "!whoami", "!memory"}
+_COMMANDS = {
+    "!status", "!stop", "!new", "!reset", "!cwd", "!task",
+    "!soul", "!whoami", "!memory", "!digest", "!schedule",
+}
 
 
 class CommandRouter:
@@ -30,11 +33,13 @@ class CommandRouter:
         agent: BaseAgent,
         context_builder: ContextBuilder | None = None,
         bootstrap_checker: BootstrapChecker | None = None,
+        scheduler: Any | None = None,
     ) -> None:
         self._db = db
         self._agent = agent
         self._context_builder = context_builder
         self._bootstrap_checker = bootstrap_checker
+        self._scheduler = scheduler
 
     # ------------------------------------------------------------------
     # Public API
@@ -84,9 +89,14 @@ class CommandRouter:
             return self._handle_whoami()
         if cmd == "!memory":
             return self._handle_memory()
+        if cmd == "!digest":
+            return self._handle_digest()
+        if cmd == "!schedule":
+            return self._handle_schedule(arg)
 
         return (
-            "Unknown command. Available: !status !stop !new !reset !cwd !task !soul !whoami !memory"  # noqa: E501
+            "Unknown command. Available: "
+            "!status !stop !new !reset !cwd !task !soul !whoami !memory !digest !schedule list"
         )
 
     # ------------------------------------------------------------------
@@ -226,3 +236,54 @@ class CommandRouter:
         if not content:
             return "(memory/MEMORY.md is empty or matches the default template)"
         return truncate_for_telegram(content)
+
+    def _handle_digest(self) -> str:
+        if self._scheduler is None:
+            return "Scheduler not configured."
+        import asyncio
+
+        loop = getattr(self._scheduler, "_loop", None)
+        if loop is None or not loop.is_running():
+            return "Scheduler event loop not available."
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._scheduler.run_now("system:morning_digest"),
+            loop,
+        )
+        try:
+            fired = future.result(timeout=300)
+        except TimeoutError:
+            return "Digest timed out."
+        except Exception as exc:  # noqa: BLE001
+            return f"Digest error: {exc}"
+
+        return "Morning digest triggered." if fired else "Digest job not found."
+
+    def _handle_schedule(self, arg: str) -> str:
+        if self._scheduler is None:
+            return "Scheduler not configured."
+        subcmd = arg.strip().lower()
+        if subcmd != "list":
+            return "Usage: !schedule list"
+        return self._render_schedule_list(self._scheduler)
+
+    def _render_schedule_list(self, scheduler: Any) -> str:
+        jobs = scheduler.list_jobs()
+        if not jobs:
+            return "No scheduled jobs."
+
+        lines: list[str] = []
+        for job in jobs:
+            status_icon = "✓" if job.enabled else "✗"
+            next_run = "(unknown)"
+            if job.state.next_run_at_ms is not None:
+                from datetime import datetime
+
+                dt = datetime.fromtimestamp(job.state.next_run_at_ms / 1000, tz=UTC)
+                next_run = dt.strftime("%Y-%m-%d %H:%M UTC")
+            last_status = job.state.last_status or "never run"
+            lines.append(
+                f"{status_icon} [{job.id}] {job.name}\n"
+                f"   next: {next_run} | last: {last_status}"
+            )
+        return "\n\n".join(lines)
