@@ -8,30 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Language: **Python 3.12+**
 
-## Quick Start
-
-```bash
-just venv          # create .venv and install dependencies
-just dev           # start dev service (uses config/settings.dev.yaml)
-just ci            # lint + typecheck + tests with coverage (mirrors CI)
-```
-
-Run `just --list` to see all available commands.
+See README.md for setup and `just` commands.
 
 ## Running Tests
 
-Always use `just` to run tests — never call pytest or activate the venv directly.
-
-```bash
-just test                              # run all tests
-just test-file tests/test_foo.py       # run a specific test file
-just test-cov                          # run with coverage (fails below 80%)
-just ci                                # lint + typecheck + test-cov (full CI)
-```
+Always use `just` — never call pytest or activate the venv directly. Use `just test`, `just test-file <path>`, `just test-cov`, or `just ci`. Run `just --list` for all targets.
 
 ## Dev vs Prod
-
-Two separate bots and data directories to avoid conflicts:
 
 | | Prod | Dev |
 |---|---|---|
@@ -120,9 +103,9 @@ Otherwise: new session.
 | `!whoami` | Show user profile (USER.md) |
 | `!memory` | Show long-term memory (MEMORY.md) |
 
-## Second Brain (Notes Directory)
+## Second Brain
 
-Set `second_brain_dir` in `settings.yaml` to give the bot read/write access to a notes directory (e.g. an Obsidian vault). When set, Claude receives `--add-dir <path>` so it can read and modify files there, and the system prompt tells it to use that directory when the user asks about notes, journal entries, or knowledge. Leave the field empty (the default) to disable this feature entirely.
+When `second_brain_dir` is set in settings, Claude is invoked with `--add-dir <path>` and the system prompt routes notes/journal queries there. Empty string disables.
 
 ## Debugging
 

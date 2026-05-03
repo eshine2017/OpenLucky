@@ -70,11 +70,15 @@ Any other message is sent to Claude Code as a prompt. Consecutive messages withi
 
 ## Development
 
+All workflows go through `just` — do not invoke `python` or `pytest` directly, and do not source `.venv` manually.
+
 ```bash
-just test       # run tests
-just ci         # lint + typecheck + tests with coverage (mirrors CI)
-just dev-reset  # clear dev DB and job logs
-just db-shell   # open SQLite shell on dev DB
+just test                    # run tests
+just test-file <path>        # run a specific test file
+just test-cov                # run with coverage (fails below 80%)
+just ci                      # lint + typecheck + tests with coverage
+just dev-reset               # clear dev DB and job logs
+just db-shell                # open SQLite shell on dev DB
 ```
 
 Run `just --list` to see all available commands.

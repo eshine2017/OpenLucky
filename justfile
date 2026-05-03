@@ -68,10 +68,6 @@ ci: lint typecheck test-cov
 dev: venv-check
     CONFIG_FILE=config/settings.dev.yaml {{python}} -m app.main
 
-# Start prod config in foreground without systemd (for debugging)
-run: venv-check
-    {{python}} -m app.main
-
 # Clear dev runtime state (db, jobs, logs, workspace) and recreate dir structure
 dev-reset:
     rm -rf data-dev/jobs data-dev/logs data-dev/workspace data-dev/app.db
@@ -116,7 +112,3 @@ service-status:
 # Follow live service logs
 service-logs:
     journalctl -u {{service}} -f
-
-# Dump recent service logs (non-interactive)
-service-logs-tail:
-    journalctl -u {{service}} -n 200 --no-pager
