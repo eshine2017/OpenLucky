@@ -72,10 +72,10 @@ dev: venv-check
 run: venv-check
     {{python}} -m app.main
 
-# Clear dev runtime state (db, jobs, logs) and recreate dir structure
+# Clear dev runtime state (db, jobs, logs, workspace) and recreate dir structure
 dev-reset:
-    rm -rf data-dev/jobs data-dev/logs data-dev/app.db
-    mkdir -p data-dev/jobs data-dev/logs
+    rm -rf data-dev/jobs data-dev/logs data-dev/workspace data-dev/app.db
+    mkdir -p data-dev/jobs data-dev/logs data-dev/workspace
     @echo "Dev state cleared."
 
 # Open a SQLite shell on the dev database
