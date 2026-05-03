@@ -15,7 +15,7 @@ default:
 venv:
     [ -d .venv ] || python3 -m venv .venv
     {{python}} -m pip install --upgrade pip
-    {{python}} -m pip install -r requirements.txt -r requirements-dev.txt
+    {{python}} -m pip install -r requirements/base.txt -r requirements/dev.txt
 
 # Fail fast with a clear message if .venv is missing
 [private]
@@ -82,7 +82,7 @@ db-shell:
 
 # Install and enable the systemd service
 service-install:
-    sudo cp openlucky.service /etc/systemd/system/
+    sudo cp deploy/openlucky.service /etc/systemd/system/
     sudo systemctl daemon-reload
     sudo systemctl enable {{service}}
     sudo systemctl start {{service}}
