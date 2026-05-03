@@ -84,7 +84,10 @@ def main() -> None:
     # 3. Bootstrap workspace and create domain objects
     _bootstrap_workspace(settings.workspace_dir)
 
-    context_builder = ContextBuilder(workspace_dir=settings.workspace_dir)
+    context_builder = ContextBuilder(
+        workspace_dir=settings.workspace_dir,
+        second_brain_dir=settings.second_brain_dir,
+    )
     bootstrap_checker = BootstrapChecker(
         workspace_dir=settings.workspace_dir,
         templates_dir=settings.templates_dir,
@@ -94,6 +97,7 @@ def main() -> None:
         claude_bin=settings.claude_bin,
         work_dir=settings.work_dir,
         workspace_dir=settings.workspace_dir,
+        second_brain_dir=settings.second_brain_dir,
     )
 
     session_manager = SessionManager(

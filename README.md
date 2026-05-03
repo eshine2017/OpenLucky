@@ -31,6 +31,12 @@ log_level: "INFO"
 
 > **Note:** `claude_bin` must be an absolute path. systemd runs with a minimal PATH and won't find `claude` by name alone.
 
+Optionally, set `second_brain_dir` to give the bot read/write access to a notes directory (e.g. an Obsidian vault). Claude will be told to read and modify files there when you ask about notes, journal entries, or knowledge. Leave it empty (the default) to disable.
+
+```yaml
+second_brain_dir: "/home/youruser/vault"  # optional; leave empty to disable
+```
+
 ## Running
 
 **Dev (foreground):**

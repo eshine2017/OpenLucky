@@ -43,6 +43,9 @@ class Settings:
     # data_dir: where DB, jobs/, logs/ live. Defaults to data/ in project root.
     # Set this in settings.yaml to separate prod and dev data.
     data_dir: str = ""
+    # second_brain_dir: optional path to a notes/knowledge directory.
+    # When set, Claude can read and write files here.
+    second_brain_dir: str = ""
 
     @property
     def _effective_data_dir(self) -> str:
@@ -91,6 +94,7 @@ def load() -> Settings:
         session_timeout_minutes=int(raw.get("session_timeout_minutes", 30)),
         log_level=raw.get("log_level", "INFO"),
         data_dir=raw.get("data_dir", ""),
+        second_brain_dir=raw.get("second_brain_dir", ""),
     )
 
     logger.debug("Settings loaded from %s", config_path)

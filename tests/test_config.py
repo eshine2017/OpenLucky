@@ -68,6 +68,17 @@ class TestLoad:
         assert settings.session_timeout_minutes == 30
         assert settings.log_level == "INFO"
         assert settings.data_dir == ""
+        assert settings.second_brain_dir == ""
+
+    def test_second_brain_dir_parses_from_yaml(self, tmp_path, monkeypatch):
+        cfg = tmp_path / "settings.yaml"
+        cfg.write_text(
+            "telegram_bot_token: tok\nsecond_brain_dir: /home/user/vault\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        settings = config.load()
+        assert settings.second_brain_dir == "/home/user/vault"
 
     def test_file_not_found_raises(self, monkeypatch):
         monkeypatch.setenv("CONFIG_FILE", "/nonexistent/path/settings.yaml")

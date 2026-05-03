@@ -210,3 +210,63 @@ def test_build_resume_hint_contains_path(tmp_path):
     hint = builder.build_resume_hint()
     assert builder._workspace_dir in hint
     assert "\n" not in hint.strip()  # should be a single line
+
+
+# ---------------------------------------------------------------------------
+# second_brain_dir
+# ---------------------------------------------------------------------------
+
+def test_build_prefix_footer_includes_second_brain_path(tmp_path):
+    workspace = str(tmp_path / "workspace")
+    os.makedirs(os.path.join(workspace, "memory"), exist_ok=True)
+    second_brain = "/home/user/vault"
+    builder = ContextBuilder(workspace_dir=workspace, second_brain_dir=second_brain)
+    object.__setattr__(builder, "_soul_template", "")
+    object.__setattr__(builder, "_user_template", "")
+    object.__setattr__(builder, "_memory_template", "")
+
+    _write(os.path.join(workspace, "SOUL.md"), "I am a bot.")
+
+    prefix = builder.build_prefix()
+    assert second_brain in prefix
+
+
+def test_build_prefix_second_brain_when_no_sections(tmp_path):
+    workspace = str(tmp_path / "workspace")
+    os.makedirs(os.path.join(workspace, "memory"), exist_ok=True)
+    second_brain = "/home/user/vault"
+    builder = ContextBuilder(workspace_dir=workspace, second_brain_dir=second_brain)
+    object.__setattr__(builder, "_soul_template", "")
+    object.__setattr__(builder, "_user_template", "")
+    object.__setattr__(builder, "_memory_template", "")
+
+    # No workspace files — sections will be empty, but prefix still carries the full footer
+    prefix = builder.build_prefix()
+    assert second_brain in prefix
+    assert "Memory files live at:" in prefix  # full footer, not a bare one-liner
+
+
+def test_build_prefix_no_second_brain_dir_unchanged(tmp_path):
+    builder = _make_builder_no_templates(tmp_path)
+    workspace = builder._workspace_dir
+    _write(os.path.join(workspace, "SOUL.md"), "I am a bot.")
+
+    prefix = builder.build_prefix()
+    assert "Second brain" not in prefix
+
+
+def test_build_resume_hint_includes_second_brain_path(tmp_path):
+    workspace = str(tmp_path / "workspace")
+    os.makedirs(os.path.join(workspace, "memory"), exist_ok=True)
+    second_brain = "/home/user/vault"
+    builder = ContextBuilder(workspace_dir=workspace, second_brain_dir=second_brain)
+
+    hint = builder.build_resume_hint()
+    assert second_brain in hint
+    assert "\n" not in hint.strip()  # must remain single-line
+
+
+def test_build_resume_hint_without_second_brain_unchanged(tmp_path):
+    builder = _make_builder_no_templates(tmp_path)
+    hint = builder.build_resume_hint()
+    assert "Second brain" not in hint

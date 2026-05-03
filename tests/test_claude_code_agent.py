@@ -1,6 +1,7 @@
 """Tests for app.agents.claude_code — command building and output parsing."""
 
 import json
+import os
 import signal
 from unittest.mock import MagicMock, patch
 
@@ -52,6 +53,34 @@ class TestBuildCommand:
         runner = _make_runner()  # workspace_dir=""
         cmd = runner._build_command("hi", session_id=None)
         assert "--add-dir" not in cmd
+
+    def test_with_second_brain_dir_adds_add_dir(self, tmp_path) -> None:
+        runner = ClaudeCodeAgent(
+            claude_bin="claude", work_dir="/tmp", second_brain_dir=str(tmp_path)
+        )
+        cmd = runner._build_command("hi", session_id=None)
+        assert "--add-dir" in cmd
+        assert str(tmp_path) in cmd
+
+    def test_nonexistent_second_brain_dir_skipped(self) -> None:
+        runner = ClaudeCodeAgent(
+            claude_bin="claude", work_dir="/tmp", second_brain_dir="/nonexistent/vault"
+        )
+        cmd = runner._build_command("hi", session_id=None)
+        assert "/nonexistent/vault" not in cmd
+
+    def test_both_workspace_and_second_brain_produce_two_add_dirs(self, tmp_path) -> None:
+        ws = str(tmp_path / "ws")
+        sb = str(tmp_path / "sb")
+        os.makedirs(ws)
+        os.makedirs(sb)
+        runner = ClaudeCodeAgent(
+            claude_bin="claude", work_dir="/tmp", workspace_dir=ws, second_brain_dir=sb
+        )
+        cmd = runner._build_command("hi", session_id=None)
+        assert cmd.count("--add-dir") == 2
+        assert ws in cmd
+        assert sb in cmd
 
     def test_empty_session_id_not_added(self) -> None:
         runner = _make_runner()

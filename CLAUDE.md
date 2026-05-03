@@ -120,6 +120,10 @@ Otherwise: new session.
 | `!whoami` | Show user profile (USER.md) |
 | `!memory` | Show long-term memory (MEMORY.md) |
 
+## Second Brain (Notes Directory)
+
+Set `second_brain_dir` in `settings.yaml` to give the bot read/write access to a notes directory (e.g. an Obsidian vault). When set, Claude receives `--add-dir <path>` so it can read and modify files there, and the system prompt tells it to use that directory when the user asks about notes, journal entries, or knowledge. Leave the field empty (the default) to disable this feature entirely.
+
 ## Debugging
 
 Raw output (stdout + stderr) for every job is saved to `data/jobs/<job_id>.log`. Check there first when exit code != 0.

@@ -31,10 +31,22 @@ class ClaudeCodeAgent:
 
     name = "claude"
 
-    def __init__(self, claude_bin: str, work_dir: str, workspace_dir: str = "") -> None:
+    def __init__(
+        self,
+        claude_bin: str,
+        work_dir: str,
+        workspace_dir: str = "",
+        second_brain_dir: str = "",
+    ) -> None:
         self.claude_bin = claude_bin
         self.work_dir = work_dir
         self.workspace_dir = workspace_dir
+        self.second_brain_dir = second_brain_dir
+        if second_brain_dir and not os.path.isdir(second_brain_dir):
+            logger.warning(
+                "second_brain_dir %r does not exist; --add-dir will be skipped until it is created",
+                second_brain_dir,
+            )
         # job_id → Popen; guarded by _proc_lock
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._proc_lock = threading.Lock()
@@ -155,6 +167,8 @@ class ClaudeCodeAgent:
         ]
         if self.workspace_dir:
             cmd += ["--add-dir", self.workspace_dir]
+        if self.second_brain_dir and os.path.isdir(self.second_brain_dir):
+            cmd += ["--add-dir", self.second_brain_dir]
         if session_id:
             cmd += ["--resume", session_id]
         return cmd

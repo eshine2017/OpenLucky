@@ -6,3 +6,7 @@ session_timeout_minutes: 30
 log_level: "INFO"
 data_dir: "data"
 
+# Optional second-brain directory. If set, Claude can read and write files here.
+# Leave empty to disable.
+second_brain_dir: ""
+
