@@ -171,7 +171,7 @@ class TestBootstrapHappyPath:
         checker = MagicMock(spec=BootstrapChecker)
         checker.check.side_effect = [
             _bs(BootstrapState.IN_PROGRESS, session_id="bs-1"),  # initial check
-            _bs(BootstrapState.COMPLETE),                          # post-job re-check
+            _bs(BootstrapState.COMPLETE),  # post-job re-check
         ]
         daemon, mock_db, mock_agent, _, mock_send = _make_daemon(tmp_path, checker)
 
@@ -327,8 +327,8 @@ class TestBootstrapSessionIsolation:
         checker = MagicMock(spec=BootstrapChecker)
         # First call: COMPLETE; second call: NEEDED (file was deleted between messages)
         checker.check.side_effect = [
-            _bs(BootstrapState.NEEDED),   # first message
-            _bs(BootstrapState.NEEDED),   # post-job check
+            _bs(BootstrapState.NEEDED),  # first message
+            _bs(BootstrapState.NEEDED),  # post-job check
         ]
         checker.load_bootstrap_prompt.return_value = "PROMPT\n"
         daemon, mock_db, mock_agent, mock_session_manager, _ = _make_daemon(tmp_path, checker)

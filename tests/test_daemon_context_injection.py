@@ -12,6 +12,7 @@ from app.models import RunResult, SessionDecision
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_result(**kwargs) -> RunResult:
     defaults = dict(session_id="s1", stdout="", stderr="", exit_code=0, summary="done")
     defaults.update(kwargs)
@@ -45,6 +46,7 @@ def _decision(mode: str, session_id: str | None = None) -> SessionDecision:
 # ---------------------------------------------------------------------------
 # _build_prompt unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_new_session_includes_prefix(tmp_path):
     mock_cb = MagicMock(spec=ContextBuilder)
@@ -100,6 +102,7 @@ def test_prefix_build_failure_does_not_crash(tmp_path):
 # ---------------------------------------------------------------------------
 # Integration: prompt reaches agent with prefix
 # ---------------------------------------------------------------------------
+
 
 def test_full_job_new_session_prompt_has_prefix(tmp_path):
     mock_cb = MagicMock(spec=ContextBuilder)

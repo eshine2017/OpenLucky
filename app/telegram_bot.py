@@ -58,7 +58,7 @@ class TelegramBot:
     # Message handler
     # ------------------------------------------------------------------
 
-    async def _on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _on_text_message(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.message is None or update.effective_user is None:
             return
 

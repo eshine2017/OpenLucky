@@ -13,6 +13,7 @@ from app.models import ChatState, ChatStatus, JobStatus, RunResult, SessionDecis
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_run_result(
     *,
     exit_code: int = 0,
@@ -71,6 +72,7 @@ def _default_decision(mode: str = "resume") -> SessionDecision:
 # __init__
 # ---------------------------------------------------------------------------
 
+
 class TestInit:
     def test_initial_state(self, tmp_path):
         daemon, _, _, _, _ = _make_daemon(tmp_path)
@@ -89,6 +91,7 @@ class TestInit:
 # ---------------------------------------------------------------------------
 # on_message() — busy guard
 # ---------------------------------------------------------------------------
+
 
 class TestOnMessageBusyGuard:
     def test_rejects_when_job_already_running(self, tmp_path):
@@ -114,6 +117,7 @@ class TestOnMessageBusyGuard:
 # ---------------------------------------------------------------------------
 # on_message() — job creation
 # ---------------------------------------------------------------------------
+
 
 class TestOnMessageJobCreation:
     def _setup(self, tmp_path, mode="resume", force_new=False, has_chat=True):
@@ -161,6 +165,7 @@ class TestOnMessageJobCreation:
 
         # Make agent.run take a moment so we can observe the lock
         started = threading.Event()
+
         def slow_run(*args, **kwargs):
             started.set()
             time.sleep(0.05)
@@ -185,6 +190,7 @@ class TestOnMessageJobCreation:
 # ---------------------------------------------------------------------------
 # _run_job() — success path
 # ---------------------------------------------------------------------------
+
 
 class TestRunJobSuccess:
     def test_agent_run_called_with_correct_args(self, tmp_path):
@@ -274,6 +280,7 @@ class TestRunJobSuccess:
 # _run_job() — failure path (non-zero exit code)
 # ---------------------------------------------------------------------------
 
+
 class TestRunJobFailure:
     def test_job_marked_failed_on_nonzero_exit(self, tmp_path):
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
@@ -321,6 +328,7 @@ class TestRunJobFailure:
 # _run_job() — session archiving on "new" mode
 # ---------------------------------------------------------------------------
 
+
 class TestSessionArchiving:
     def test_archives_old_session_on_new_mode(self, tmp_path):
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
@@ -336,9 +344,7 @@ class TestSessionArchiving:
         daemon.on_message("42", "hello")
         time.sleep(0.3)
 
-        mock_db.archive_session.assert_called_once_with(
-            "old-session", "42", "my-task", "/tmp"
-        )
+        mock_db.archive_session.assert_called_once_with("old-session", "42", "my-task", "/tmp")
 
     def test_no_archive_on_resume_mode(self, tmp_path):
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
@@ -355,6 +361,7 @@ class TestSessionArchiving:
 # ---------------------------------------------------------------------------
 # _run_job() — exception handling
 # ---------------------------------------------------------------------------
+
 
 class TestRunJobException:
     def test_exception_marks_job_failed(self, tmp_path):
@@ -412,6 +419,7 @@ class TestRunJobException:
 # ---------------------------------------------------------------------------
 # default_cwd fallback
 # ---------------------------------------------------------------------------
+
 
 class TestDefaultCwd:
     def test_uses_default_cwd_when_chat_has_none(self, tmp_path):

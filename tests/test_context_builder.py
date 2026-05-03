@@ -13,6 +13,7 @@ from app.context_builder import _MAX_SECTION_CHARS, _MAX_TOTAL_CHARS, ContextBui
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -39,6 +40,7 @@ def _make_builder_no_templates(tmp_path) -> ContextBuilder:
 # ---------------------------------------------------------------------------
 # build_prefix
 # ---------------------------------------------------------------------------
+
 
 def test_build_prefix_with_all_files(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
@@ -182,6 +184,7 @@ def test_build_prefix_oversized_file(tmp_path):
 # read_soul / read_user / read_memory — hardcoded, no path parameter
 # ---------------------------------------------------------------------------
 
+
 def test_read_soul_user_memory_hardcoded(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
     workspace = builder._workspace_dir
@@ -205,6 +208,7 @@ def test_read_soul_user_memory_hardcoded(tmp_path):
 # build_resume_hint
 # ---------------------------------------------------------------------------
 
+
 def test_build_resume_hint_contains_path(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
     hint = builder.build_resume_hint()
@@ -215,6 +219,7 @@ def test_build_resume_hint_contains_path(tmp_path):
 # ---------------------------------------------------------------------------
 # second_brain_dir
 # ---------------------------------------------------------------------------
+
 
 def test_build_prefix_footer_includes_second_brain_path(tmp_path):
     workspace = str(tmp_path / "workspace")

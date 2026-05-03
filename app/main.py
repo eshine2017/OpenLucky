@@ -141,7 +141,7 @@ def main() -> None:
     # 5. Build the Telegram Application with a post_init hook that captures
     #    the running event loop once PTB has started it.
 
-    async def _post_init(app: Any) -> None:
+    async def _post_init(_app: Any) -> None:
         _loop_ref.append(asyncio.get_running_loop())
         logger.info("Event loop captured; bot is ready.")
 

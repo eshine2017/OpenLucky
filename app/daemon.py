@@ -90,7 +90,9 @@ class Daemon:
                 if bs.state == BootstrapState.NEEDED:
                     logger.info(
                         "bootstrap: re-triggered for chat %s (soul=%s user=%s)",
-                        chat_id, bs.soul, bs.user,
+                        chat_id,
+                        bs.soul,
+                        bs.user,
                     )
                 self._launch_bootstrap_job(chat_id, text, chat_state, bs)
                 return
@@ -161,9 +163,7 @@ class Daemon:
         if bs.state == BootstrapState.NEEDED:
             logger.info("bootstrap: NEEDED → starting new session for chat %s", chat_id)
             prompt = (
-                self._bootstrap_checker.load_bootstrap_prompt(bs)
-                + "\n\n# First message\n"
-                + text
+                self._bootstrap_checker.load_bootstrap_prompt(bs) + "\n\n# First message\n" + text
             )
             session_id = None
             self._send(

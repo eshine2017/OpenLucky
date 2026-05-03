@@ -112,22 +112,18 @@ class BootstrapChecker:
             content = _FALLBACK_PROMPT
 
         file_status_block = self._render_file_status(status)
-        return (
-            content
-            .replace("{workspace_dir}", self._workspace_dir)
-            .replace("{file_status}", file_status_block)
+        return content.replace("{workspace_dir}", self._workspace_dir).replace(
+            "{file_status}", file_status_block
         )
 
     def _render_file_status(self, status: BootstrapStatus) -> str:
         label: dict[str, str] = {
-            "filled":   "already filled — DO NOT modify or re-ask its questions",
+            "filled": "already filled — DO NOT modify or re-ask its questions",
             "template": "still at template content — needs to be filled in",
-            "missing":  "missing — needs to be created and filled in",
+            "missing": "missing — needs to be created and filled in",
         }
         return (
-            "Current file state:\n"
-            f"- USER.md: {label[status.user]}\n"
-            f"- SOUL.md: {label[status.soul]}"
+            f"Current file state:\n- USER.md: {label[status.user]}\n- SOUL.md: {label[status.soul]}"
         )
 
     def _file_state(

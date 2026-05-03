@@ -201,6 +201,7 @@ class TestParseStreamJson:
 # run() — subprocess integration (mocked Popen)
 # ---------------------------------------------------------------------------
 
+
 def _make_popen_mock(stdout: str = "", stderr: str = "", returncode: int = 0) -> MagicMock:
     proc = MagicMock()
     proc.communicate.return_value = (stdout, stderr)
@@ -291,6 +292,7 @@ class TestRun:
 # cancel() — SIGTERM + SIGKILL fallback
 # ---------------------------------------------------------------------------
 
+
 class TestCancel:
     def test_cancel_no_process_is_noop(self, tmp_path):
         runner = ClaudeCodeAgent(claude_bin="claude", work_dir=str(tmp_path))
@@ -320,6 +322,7 @@ class TestCancel:
 
         # Patch time.monotonic to fast-forward past the 5-second deadline
         import time as _time
+
         call_count = [0]
         start = _time.monotonic()
 

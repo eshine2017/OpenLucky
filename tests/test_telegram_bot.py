@@ -12,6 +12,7 @@ from app.telegram_bot import TelegramBot
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_daemon():
     daemon = MagicMock()
@@ -73,6 +74,7 @@ def _make_context() -> MagicMock:
 # Guard clauses
 # ---------------------------------------------------------------------------
 
+
 class TestGuardClauses:
     @pytest.mark.asyncio
     async def test_returns_early_when_message_is_none(self, bot_no_restrictions):
@@ -103,6 +105,7 @@ class TestGuardClauses:
 # ---------------------------------------------------------------------------
 # Authorization
 # ---------------------------------------------------------------------------
+
 
 class TestAuthorization:
     @pytest.mark.asyncio
@@ -140,6 +143,7 @@ class TestAuthorization:
 # ---------------------------------------------------------------------------
 # Command routing
 # ---------------------------------------------------------------------------
+
 
 class TestCommandRouting:
     @pytest.mark.asyncio
@@ -195,6 +199,7 @@ class TestCommandRouting:
 # chat_id as string
 # ---------------------------------------------------------------------------
 
+
 class TestChatIdHandling:
     @pytest.mark.asyncio
     async def test_chat_id_converted_to_string(self, bot_no_restrictions):
@@ -219,6 +224,7 @@ class TestChatIdHandling:
 # ---------------------------------------------------------------------------
 # get_application()
 # ---------------------------------------------------------------------------
+
 
 class TestGetApplication:
     def test_raises_when_not_started(self, bot_no_restrictions):

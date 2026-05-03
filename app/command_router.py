@@ -85,7 +85,9 @@ class CommandRouter:
         if cmd == "!memory":
             return self._handle_memory()
 
-        return "Unknown command. Available: !status !stop !new !reset !cwd !task !soul !whoami !memory"  # noqa: E501
+        return (
+            "Unknown command. Available: !status !stop !new !reset !cwd !task !soul !whoami !memory"  # noqa: E501
+        )
 
     # ------------------------------------------------------------------
     # Command handlers
