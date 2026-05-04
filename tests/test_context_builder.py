@@ -298,6 +298,10 @@ class TestReadUserTimezone:
         ws = self._write_user_md(tmp_path, "timezone: America/Los_Angeles\n")
         assert read_user_timezone(ws) == "America/Los_Angeles"
 
+    def test_list_item_format(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "- **Timezone**: America/Los_Angeles (UTC-7/8, Bay Area)\n")
+        assert read_user_timezone(ws) == "America/Los_Angeles"
+
     def test_markdown_bold_with_utc_annotation(self, tmp_path) -> None:
         ws = self._write_user_md(tmp_path, "**Timezone**: America/Los_Angeles (UTC-8/UTC-7)\n")
         assert read_user_timezone(ws) == "America/Los_Angeles"

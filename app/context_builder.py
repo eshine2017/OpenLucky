@@ -28,7 +28,7 @@ def read_user_timezone(workspace_dir: str) -> str | None:
     try:
         with open(user_md, encoding="utf-8") as fh:
             for line in fh:
-                m = re.match(r"^\s*\**timezone\**\s*:\s*(.+)$", line, re.IGNORECASE)
+                m = re.match(r"^\s*(?:[-*+]\s*)?\**timezone\**\s*:\s*(.+)$", line, re.IGNORECASE)
                 if m:
                     # Strip trailing annotations like "(UTC-8/UTC-7)"; IANA names have no spaces
                     tz_value = m.group(1).strip().split()[0]
