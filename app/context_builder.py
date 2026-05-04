@@ -9,8 +9,41 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def read_user_timezone(workspace_dir: str) -> str | None:
+    """
+    Read the user's IANA timezone from workspace_dir/USER.md.
+
+    Looks for a line like:  timezone: America/Los_Angeles
+    Returns the timezone string if valid, else None.
+    """
+    user_md = os.path.join(workspace_dir, "USER.md")
+    if not os.path.isfile(user_md):
+        return None
+
+    try:
+        with open(user_md, encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r"^\s*\**timezone\**\s*:\s*(.+)$", line, re.IGNORECASE)
+                if m:
+                    # Strip trailing annotations like "(UTC-8/UTC-7)"; IANA names have no spaces
+                    tz_value = m.group(1).strip().split()[0]
+                    try:
+                        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+                        ZoneInfo(tz_value)
+                        return tz_value
+                    except (ZoneInfoNotFoundError, KeyError):
+                        logger.warning("Invalid timezone in USER.md: %r", tz_value)
+                        return None
+    except OSError as exc:
+        logger.warning("Could not read USER.md: %s", exc)
+
+    return None
 
 _MAX_SECTION_CHARS = 4_000
 _MAX_TOTAL_CHARS = 10_000

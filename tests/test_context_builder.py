@@ -7,7 +7,12 @@ import os
 
 import pytest
 
-from app.context_builder import _MAX_SECTION_CHARS, _MAX_TOTAL_CHARS, ContextBuilder
+from app.context_builder import (
+    _MAX_SECTION_CHARS,
+    _MAX_TOTAL_CHARS,
+    ContextBuilder,
+    read_user_timezone,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -275,3 +280,39 @@ def test_build_resume_hint_without_second_brain_unchanged(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
     hint = builder.build_resume_hint()
     assert "Second brain" not in hint
+
+
+# ---------------------------------------------------------------------------
+# read_user_timezone
+# ---------------------------------------------------------------------------
+
+
+class TestReadUserTimezone:
+    def _write_user_md(self, tmp_path, content: str) -> str:
+        path = str(tmp_path / "USER.md")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        return str(tmp_path)
+
+    def test_plain_format(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "timezone: America/Los_Angeles\n")
+        assert read_user_timezone(ws) == "America/Los_Angeles"
+
+    def test_markdown_bold_with_utc_annotation(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "**Timezone**: America/Los_Angeles (UTC-8/UTC-7)\n")
+        assert read_user_timezone(ws) == "America/Los_Angeles"
+
+    def test_markdown_bold_no_annotation(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "**Timezone**: Europe/London\n")
+        assert read_user_timezone(ws) == "Europe/London"
+
+    def test_case_insensitive(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "TIMEZONE: UTC\n")
+        assert read_user_timezone(ws) == "UTC"
+
+    def test_invalid_iana_name_returns_none(self, tmp_path) -> None:
+        ws = self._write_user_md(tmp_path, "timezone: Not/AZone\n")
+        assert read_user_timezone(ws) is None
+
+    def test_no_user_md_returns_none(self, tmp_path) -> None:
+        assert read_user_timezone(str(tmp_path)) is None

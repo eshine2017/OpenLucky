@@ -68,12 +68,10 @@ def _idle_chat(chat_id: str = "42") -> ChatState:
 class TestRunScheduledJobSkips:
     def test_skips_when_no_chat(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = None
+        mock_db.get_most_recent_chat.return_value = None
 
         result = daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -82,7 +80,7 @@ class TestRunScheduledJobSkips:
 
     def test_skips_when_bootstrap_incomplete(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
 
         mock_bootstrap = MagicMock()
         mock_bootstrap.check.return_value = BootstrapStatus(
@@ -94,9 +92,7 @@ class TestRunScheduledJobSkips:
         daemon._bootstrap_checker = mock_bootstrap
 
         result = daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -105,15 +101,13 @@ class TestRunScheduledJobSkips:
 
     def test_skips_when_chat_busy(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
 
         # Simulate a busy chat
         daemon.running_locks["42"] = "existing-job-id"
 
         result = daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -129,13 +123,11 @@ class TestRunScheduledJobSkips:
 class TestRunScheduledJobHappy:
     def test_returns_dispatched(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result()
 
         result = daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -143,13 +135,11 @@ class TestRunScheduledJobHappy:
 
     def test_spawns_thread_and_runs_agent(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, mock_send = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result()
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -168,13 +158,11 @@ class TestRunScheduledJobHappy:
         daemon, mock_db, mock_agent, _, mock_send = _make_daemon(tmp_path)
         original_session = "user-interactive-session"
         chat = replace(_idle_chat(), active_session_id=original_session)
-        mock_db.get_chat.return_value = chat
+        mock_db.get_most_recent_chat.return_value = chat
         mock_agent.run.return_value = _make_run_result(session_id="new-sched-session")
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -194,13 +182,11 @@ class TestRunScheduledJobHappy:
 
     def test_creates_job_with_kind_scheduled(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result()
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -216,13 +202,11 @@ class TestRunScheduledJobHappy:
 
     def test_sends_summary_to_telegram(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, mock_send = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result(summary="Today's digest summary")
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -241,13 +225,11 @@ class TestRunScheduledJobHappy:
     def test_uses_session_id_none(self, tmp_path) -> None:
         """Scheduled runs always start a fresh Claude session."""
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result()
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 
@@ -262,13 +244,11 @@ class TestRunScheduledJobHappy:
 
     def test_releases_lock_after_completion(self, tmp_path) -> None:
         daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
-        mock_db.get_chat.return_value = _idle_chat()
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
         mock_agent.run.return_value = _make_run_result()
 
         daemon.run_scheduled_job(
-            chat_id="42",
             prompt="Good morning",
-            cwd="/tmp/work",
             label="morning-digest",
         )
 

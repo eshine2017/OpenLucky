@@ -1,4 +1,4 @@
-"""Tests for app.scheduler — In-daemon cron scheduler."""
+"""Tests for app.scheduler — In-daemon cron scheduler (generic spec+state split)."""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 from app.scheduler import (
-    CronJob,
     CronJobState,
     CronRunRecord,
-    CronSchedule,
     Scheduler,
+    _compute_next_run,
 )
 
 # ---------------------------------------------------------------------------
@@ -27,33 +26,28 @@ def _fixed_clock() -> float:
     return _NOW_S
 
 
-def _make_cron_job(
+def _write_spec(path: str, jobs: list[dict]) -> None:
+    with open(path, "w") as f:
+        json.dump({"jobs": jobs}, f)
+
+
+def _make_job_spec(
     job_id: str = "test:job",
     *,
-    kind: str = "every",
-    every_ms: int | None = 60_000,
-    expr: str | None = None,
-    tz: str | None = None,
-    at_ms: int | None = None,
+    cron_expr: str = "0 8 * * *",
+    tz: str = "UTC",
+    prompt: str = "hello",
     enabled: bool = True,
-    next_run_at_ms: int | None = None,
-) -> CronJob:
-    schedule = CronSchedule(
-        kind=kind,  # type: ignore[arg-type]
-        every_ms=every_ms,
-        expr=expr,
-        tz=tz,
-        at_ms=at_ms,
-    )
-    state = CronJobState(next_run_at_ms=next_run_at_ms)
-    return CronJob(
-        id=job_id,
-        name="Test job",
-        schedule=schedule,
-        payload={"kind": "test"},
-        enabled=enabled,
-        state=state,
-    )
+    name: str = "Test",
+) -> dict:
+    return {
+        "id": job_id,
+        "name": name,
+        "enabled": enabled,
+        "cron_expr": cron_expr,
+        "tz": tz,
+        "prompt": prompt,
+    }
 
 
 def _make_scheduler(
@@ -62,145 +56,213 @@ def _make_scheduler(
     on_job=None,
     clock=None,
 ) -> Scheduler:
-    store_path = str(tmp_path / "scheduler.json")
+    spec_path = str(tmp_path / "cron.json")
+    state_path = str(tmp_path / "cron-state.json")
     if on_job is None:
         on_job = AsyncMock()
     if clock is None:
         clock = _fixed_clock
-    return Scheduler(store_path=store_path, on_job=on_job, clock=clock)
+    return Scheduler(spec_path=spec_path, state_path=state_path, on_job=on_job, clock=clock)
 
 
 # ---------------------------------------------------------------------------
-# _compute_next_run
+# _compute_next_run (module-level function)
 # ---------------------------------------------------------------------------
 
 
 class TestComputeNextRun:
-    def test_at_returns_literal_ms(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        schedule = CronSchedule(kind="at", at_ms=12345)
-        assert s._compute_next_run(schedule, _NOW_MS) == 12345
-
-    def test_every_adds_interval(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        schedule = CronSchedule(kind="every", every_ms=5000)
-        assert s._compute_next_run(schedule, _NOW_MS) == _NOW_MS + 5000
-
-    def test_cron_returns_next_scheduled_ms(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        # "0 8 * * *" — every day at 08:00
-        schedule = CronSchedule(kind="cron", expr="0 8 * * *", tz="UTC")
-        result = s._compute_next_run(schedule, _NOW_MS)
+    def test_valid_cron_returns_future_ms(self) -> None:
+        # "0 8 * * *" — every day at 08:00 UTC
+        result = _compute_next_run("0 8 * * *", "UTC", _NOW_MS)
         assert result is not None
         assert result > _NOW_MS
         # Should be within 24 hours
         assert result <= _NOW_MS + 24 * 3600 * 1000
 
-    def test_cron_respects_timezone(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        schedule_utc = CronSchedule(kind="cron", expr="0 8 * * *", tz="UTC")
-        schedule_pt = CronSchedule(kind="cron", expr="0 8 * * *", tz="America/Los_Angeles")
-        result_utc = s._compute_next_run(schedule_utc, _NOW_MS)
-        result_pt = s._compute_next_run(schedule_pt, _NOW_MS)
-        # PT is UTC-8 (or -7 in DST), so 08:00 PT fires later than 08:00 UTC
+    def test_respects_timezone(self) -> None:
+        result_utc = _compute_next_run("0 8 * * *", "UTC", _NOW_MS)
+        result_pt = _compute_next_run("0 8 * * *", "America/Los_Angeles", _NOW_MS)
         assert result_utc is not None
         assert result_pt is not None
+        # PT fires later than UTC for the same wall-clock time
         assert result_pt != result_utc
 
+    def test_invalid_timezone_falls_back_to_utc(self) -> None:
+        # Should not raise; falls back to UTC
+        result = _compute_next_run("0 8 * * *", "Not/A/Real/Zone", _NOW_MS)
+        utc_result = _compute_next_run("0 8 * * *", "UTC", _NOW_MS)
+        assert result is not None
+        assert result == utc_result
+
+    def test_invalid_cron_expression_returns_none(self) -> None:
+        result = _compute_next_run("not a cron expr !! @ #", "UTC", _NOW_MS)
+        assert result is None
+
+    def test_five_field_cron(self) -> None:
+        # Standard 5-field cron
+        result = _compute_next_run("*/5 * * * *", "UTC", _NOW_MS)
+        assert result is not None
+        # Should fire within 5 minutes
+        assert result <= _NOW_MS + 5 * 60 * 1000
+
 
 # ---------------------------------------------------------------------------
-# Persistence
+# Scheduler constructor and spec/state paths
 # ---------------------------------------------------------------------------
 
 
-class TestPersistence:
-    def test_round_trip(self, tmp_path) -> None:
+class TestSchedulerConstructor:
+    def test_has_spec_path_and_state_path(self, tmp_path) -> None:
         s = _make_scheduler(tmp_path)
-        job = _make_cron_job()
-        s.add_job(job)
+        assert s._spec_path == str(tmp_path / "cron.json")
+        assert s._state_path == str(tmp_path / "cron-state.json")
 
-        # Create a new scheduler from the same store
-        s2 = _make_scheduler(tmp_path)
-        s2._load()
+    def test_has_loop_attribute(self, tmp_path) -> None:
+        s = _make_scheduler(tmp_path)
+        assert hasattr(s, "_loop")
+        assert s._loop is None
 
-        jobs = s2.list_jobs()
+
+# ---------------------------------------------------------------------------
+# start() — loads spec and state, recomputes next_run
+# ---------------------------------------------------------------------------
+
+
+class TestStart:
+    async def test_loads_spec_from_spec_path(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+        jobs = s.list_jobs()
         assert len(jobs) == 1
-        assert jobs[0].id == job.id
-        assert jobs[0].name == job.name
-        assert jobs[0].schedule.kind == job.schedule.kind
-        assert jobs[0].schedule.every_ms == job.schedule.every_ms
-        assert jobs[0].payload == job.payload
+        assert jobs[0].id == "j1"
 
-    def test_round_trip_with_run_history(self, tmp_path) -> None:
+    async def test_loads_state_from_state_path(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        state_path = str(tmp_path / "cron-state.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+        # Pre-seed state
+        state_data = {
+            "j1": {
+                "next_run_at_ms": _NOW_MS + 10_000,
+                "last_run_at_ms": _NOW_MS - 100,
+                "last_status": "ok",
+                "last_error": None,
+                "run_history": [],
+            }
+        }
+        with open(state_path, "w") as f:
+            json.dump(state_data, f)
+
         s = _make_scheduler(tmp_path)
-        job = _make_cron_job()
-        record = CronRunRecord(run_at_ms=_NOW_MS, status="ok")
-        state = CronJobState(
-            next_run_at_ms=_NOW_MS + 60_000,
-            last_run_at_ms=_NOW_MS,
-            last_status="ok",
-            run_history=[record],
+        s._arm_timer = MagicMock()
+        await s.start()
+        jobs = s.list_jobs()
+        assert len(jobs) == 1
+        # start() recomputes next_run, so last_run_at_ms should still be from state
+        assert jobs[0].state.last_run_at_ms == _NOW_MS - 100
+        assert jobs[0].state.last_status == "ok"
+
+    async def test_stale_next_run_reset_on_start(self, tmp_path) -> None:
+        """A stale (past) next_run_at_ms must be recomputed, not fired in burst."""
+        spec_path = str(tmp_path / "cron.json")
+        state_path = str(tmp_path / "cron-state.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+        # Plant a stale next_run_at_ms
+        stale_ms = _NOW_MS - 7 * 24 * 3600 * 1000  # 7 days ago
+        state_data = {
+            "j1": {
+                "next_run_at_ms": stale_ms,
+                "last_run_at_ms": None,
+                "last_status": None,
+                "last_error": None,
+                "run_history": [],
+            }
+        }
+        with open(state_path, "w") as f:
+            json.dump(state_data, f)
+
+        on_job = AsyncMock()
+        s = Scheduler(
+            spec_path=str(tmp_path / "cron.json"),
+            state_path=str(tmp_path / "cron-state.json"),
+            on_job=on_job,
+            clock=_fixed_clock,
         )
-        stored_job = replace(job, state=state)
-        s._jobs[stored_job.id] = stored_job
-        s._save()
+        s._arm_timer = MagicMock()
+        await s.start()
 
-        s2 = _make_scheduler(tmp_path)
-        s2._load()
+        jobs = s.list_jobs()
+        assert jobs[0].state.next_run_at_ms is not None
+        assert jobs[0].state.next_run_at_ms > _NOW_MS
+        on_job.assert_not_awaited()
 
-        reloaded = s2._jobs[job.id]
-        assert len(reloaded.state.run_history) == 1
-        assert reloaded.state.run_history[0].status == "ok"
-        assert reloaded.state.last_status == "ok"
+    async def test_start_with_no_spec_file(self, tmp_path) -> None:
+        """Scheduler starts cleanly when spec file doesn't exist."""
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+        assert s.list_jobs() == []
 
 
 # ---------------------------------------------------------------------------
-# ensure_job
+# list_jobs() — merged spec + state view
 # ---------------------------------------------------------------------------
 
 
-class TestEnsureJob:
-    def test_creates_when_missing(self, tmp_path) -> None:
+class TestListJobs:
+    async def test_returns_merged_spec_and_state(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        state_path = str(tmp_path / "cron-state.json")
+        _write_spec(spec_path, [_make_job_spec("j1", prompt="do something")])
+        state_data = {
+            "j1": {
+                "next_run_at_ms": _NOW_MS + 1000,
+                "last_run_at_ms": _NOW_MS - 500,
+                "last_status": "ok",
+                "last_error": None,
+                "run_history": [],
+            }
+        }
+        with open(state_path, "w") as f:
+            json.dump(state_data, f)
+
         s = _make_scheduler(tmp_path)
-        job = _make_cron_job(job_id="new:job")
-        s.ensure_job(job)
-        assert "new:job" in {j.id for j in s.list_jobs()}
+        s._arm_timer = MagicMock()
+        await s.start()
 
-    def test_no_op_when_exists(self, tmp_path) -> None:
+        jobs = s.list_jobs()
+        assert len(jobs) == 1
+        assert jobs[0].id == "j1"
+        assert jobs[0].prompt == "do something"
+        assert jobs[0].state.last_status == "ok"
+        assert jobs[0].state.last_run_at_ms == _NOW_MS - 500
+
+    def test_returns_empty_without_loading(self, tmp_path) -> None:
         s = _make_scheduler(tmp_path)
-        job = _make_cron_job(job_id="existing:job")
-        s.add_job(job)
-
-        # Mutate the stored job's name to detect a clobber
-        stored = s._jobs["existing:job"]
-        s._jobs["existing:job"] = replace(stored, name="custom name")
-
-        # ensure_job with a different name — must not overwrite
-        s.ensure_job(replace(job, name="overwrite attempt"))
-        assert s._jobs["existing:job"].name == "custom name"
-
-    def test_persists_new_job(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        s.ensure_job(_make_cron_job(job_id="persist:job"))
-
-        s2 = _make_scheduler(tmp_path)
-        s2._load()
-        assert any(j.id == "persist:job" for j in s2.list_jobs())
+        assert s.list_jobs() == []
 
 
 # ---------------------------------------------------------------------------
-# _on_timer
+# _on_timer() — fires due jobs, reloads spec if changed
 # ---------------------------------------------------------------------------
 
 
 class TestOnTimer:
     async def test_fires_due_jobs(self, tmp_path) -> None:
         on_job = AsyncMock()
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-        # Job with next_run_at_ms in the past
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1000)
-        s._jobs[job.id] = job
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        # Force next_run to the past
+        job_state = s._state.get("j1", CronJobState())
+        s._state["j1"] = replace(job_state, next_run_at_ms=_NOW_MS - 1000)
 
         await s._on_timer()
 
@@ -208,10 +270,14 @@ class TestOnTimer:
 
     async def test_skips_disabled_jobs(self, tmp_path) -> None:
         on_job = AsyncMock()
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1", enabled=False)])
 
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1000, enabled=False)
-        s._jobs[job.id] = job
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1000)
 
         await s._on_timer()
 
@@ -219,10 +285,14 @@ class TestOnTimer:
 
     async def test_skips_future_jobs(self, tmp_path) -> None:
         on_job = AsyncMock()
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-        job = _make_cron_job(next_run_at_ms=_NOW_MS + 999_999)
-        s._jobs[job.id] = job
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS + 999_999)
 
         await s._on_timer()
 
@@ -230,74 +300,123 @@ class TestOnTimer:
 
     async def test_updates_state_after_fire(self, tmp_path) -> None:
         on_job = AsyncMock()
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1000, every_ms=5000)
-        s._jobs[job.id] = job
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1000)
 
         await s._on_timer()
 
-        updated = s._jobs[job.id]
-        assert updated.state.last_run_at_ms == _NOW_MS
-        assert updated.state.last_status == "ok"
-        assert updated.state.next_run_at_ms == _NOW_MS + 5000
+        state = s._state["j1"]
+        assert state.last_run_at_ms == _NOW_MS
+        assert state.last_status == "ok"
+        assert state.next_run_at_ms is not None
+        assert state.next_run_at_ms > _NOW_MS
 
     async def test_records_error_status(self, tmp_path) -> None:
         on_job = AsyncMock(side_effect=RuntimeError("boom"))
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1)
-        s._jobs[job.id] = job
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1)
 
         await s._on_timer()
 
-        updated = s._jobs[job.id]
-        assert updated.state.last_status == "error"
-        assert "boom" in (updated.state.last_error or "")
+        state = s._state["j1"]
+        assert state.last_status == "error"
+        assert "boom" in (state.last_error or "")
 
     async def test_caps_run_history_at_20(self, tmp_path) -> None:
         on_job = AsyncMock()
-        s = _make_scheduler(tmp_path, on_job=on_job)
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-        # Pre-populate 20 records
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
         records = [CronRunRecord(run_at_ms=_NOW_MS - i * 1000, status="ok") for i in range(20)]
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1)
-        job = replace(job, state=replace(job.state, run_history=records))
-        s._jobs[job.id] = job
+        s._state["j1"] = CronJobState(
+            next_run_at_ms=_NOW_MS - 1, run_history=records
+        )
 
         await s._on_timer()
 
-        assert len(s._jobs[job.id].state.run_history) == 20
+        assert len(s._state["j1"].run_history) == 20
 
-    async def test_persists_after_firing(self, tmp_path) -> None:
+    async def test_persists_state_after_firing(self, tmp_path) -> None:
         on_job = AsyncMock()
+        spec_path = str(tmp_path / "cron.json")
+        state_path = str(tmp_path / "cron-state.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
         s = _make_scheduler(tmp_path, on_job=on_job)
-        job = _make_cron_job(next_run_at_ms=_NOW_MS - 1)
-        s._jobs[job.id] = job
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1)
 
         await s._on_timer()
 
-        assert os.path.exists(s._store_path)
-        with open(s._store_path) as fh:
+        assert os.path.exists(state_path)
+        with open(state_path) as fh:
             data = json.load(fh)
-        assert len(data["jobs"]) == 1
+        assert "j1" in data
+        assert data["j1"]["last_status"] == "ok"
+
+    async def test_reloads_spec_on_mtime_change(self, tmp_path) -> None:
+        """Scheduler picks up a new job added to spec file (mtime changed)."""
+        on_job = AsyncMock()
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        assert len(s._spec) == 1
+
+        # Write a new spec with an additional job
+        import time
+        time.sleep(0.01)  # ensure mtime differs
+        _write_spec(spec_path, [_make_job_spec("j1"), _make_job_spec("j2")])
+        # Manually bump the mtime to guarantee the check fires
+        new_mtime = os.path.getmtime(spec_path) + 1
+        os.utime(spec_path, (new_mtime, new_mtime))
+
+        await s._on_timer()
+
+        assert len(s._spec) == 2
+        assert any(j.id == "j2" for j in s._spec)
 
 
 # ---------------------------------------------------------------------------
-# run_now
+# run_now()
 # ---------------------------------------------------------------------------
 
 
 class TestRunNow:
     async def test_fires_regardless_of_next_run(self, tmp_path) -> None:
         on_job = AsyncMock()
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
         s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
 
-        # Job scheduled far in the future
-        job = _make_cron_job(next_run_at_ms=_NOW_MS + 999_999_999)
-        s._jobs[job.id] = job
+        # Set next_run far in the future
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS + 999_999_999)
 
-        result = await s.run_now(job.id)
+        result = await s.run_now("j1")
 
         assert result is True
         on_job.assert_awaited_once()
@@ -305,6 +424,8 @@ class TestRunNow:
     async def test_returns_false_for_unknown_id(self, tmp_path) -> None:
         on_job = AsyncMock()
         s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
 
         result = await s.run_now("nonexistent:job")
 
@@ -313,74 +434,167 @@ class TestRunNow:
 
     async def test_updates_state_after_run_now(self, tmp_path) -> None:
         on_job = AsyncMock()
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
         s = _make_scheduler(tmp_path, on_job=on_job)
-        job = _make_cron_job(job_id="rn:job", next_run_at_ms=_NOW_MS + 999_999)
-        s._jobs[job.id] = job
+        s._arm_timer = MagicMock()
+        await s.start()
 
-        await s.run_now(job.id)
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS + 999_999)
 
-        updated = s._jobs[job.id]
-        assert updated.state.last_run_at_ms == _NOW_MS
-        assert updated.state.last_status == "ok"
+        await s.run_now("j1")
+
+        state = s._state["j1"]
+        assert state.last_run_at_ms == _NOW_MS
+        assert state.last_status == "ok"
+
+    async def test_reloads_spec_before_run_now(self, tmp_path) -> None:
+        """run_now reloads spec if mtime changed before firing."""
+        on_job = AsyncMock()
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        # Add j2 to spec and bump mtime
+        _write_spec(spec_path, [_make_job_spec("j1"), _make_job_spec("j2")])
+        new_mtime = os.path.getmtime(spec_path) + 1
+        os.utime(spec_path, (new_mtime, new_mtime))
+
+        result = await s.run_now("j2")
+
+        assert result is True
+        on_job.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
-# start() recomputes stale next_run_at_ms
+# set_enabled()
 # ---------------------------------------------------------------------------
 
 
-class TestStartRecompute:
-    async def test_stale_next_run_reset_on_start(self, tmp_path) -> None:
-        """A stale (past) next_run_at_ms must be recomputed, not fired in burst."""
+class TestSetEnabled:
+    async def test_set_enabled_false_updates_spec_file(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        result = s.set_enabled("j1", False)
+        assert result is True
+
+        # Verify spec file was updated
+        with open(spec_path) as f:
+            data = json.load(f)
+        assert data["jobs"][0]["enabled"] is False
+
+        # In-memory should also reflect
+        assert s._spec[0].enabled is False
+
+    async def test_set_enabled_unknown_returns_false(self, tmp_path) -> None:
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        result = s.set_enabled("ghost", True)
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# remove_job()
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveJob:
+    async def test_removes_from_spec_file_and_state(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        state_path = str(tmp_path / "cron-state.json")
+        _write_spec(spec_path, [_make_job_spec("j1"), _make_job_spec("j2")])
+
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        # Seed some state for j1
+        s._state["j1"] = CronJobState(last_status="ok")
+        s._save_state()
+
+        result = s.remove_job("j1")
+        assert result is True
+
+        # Spec file should only have j2
+        with open(spec_path) as f:
+            data = json.load(f)
+        ids = [j["id"] for j in data["jobs"]]
+        assert "j1" not in ids
+        assert "j2" in ids
+
+        # State file should not have j1
+        with open(state_path) as f:
+            state_data = json.load(f)
+        assert "j1" not in state_data
+
+        # In-memory spec should not have j1
+        assert not any(j.id == "j1" for j in s._spec)
+
+    async def test_remove_unknown_returns_false(self, tmp_path) -> None:
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+
+        result = s.remove_job("ghost")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# State persistence round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestStatePersistence:
+    async def test_state_round_trip(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+
         on_job = AsyncMock()
         s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
 
-        # Plant a job with a very old next_run_at_ms
-        stale_ms = _NOW_MS - 7 * 24 * 3600 * 1000  # 7 days ago
-        job = _make_cron_job(next_run_at_ms=stale_ms)
-        s._jobs[job.id] = job
-        s._save()
+        # Fire the job
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1)
+        await s._on_timer()
 
-        # Create a fresh scheduler and call start (with _running=True to arm timer)
-        s2 = _make_scheduler(tmp_path, on_job=on_job)
-        # Patch _arm_timer to prevent actually creating an asyncio task in test
-        s2._arm_timer = MagicMock()
-        await s2.start()
+        # Load a fresh scheduler and verify state is persisted
+        s2 = _make_scheduler(tmp_path, on_job=AsyncMock())
+        s2._load_state()
 
-        reloaded = s2._jobs[job.id]
-        # next_run_at_ms must have been recomputed to the future
-        assert reloaded.state.next_run_at_ms is not None
-        assert reloaded.state.next_run_at_ms > _NOW_MS
-        # on_job must NOT have been called (no burst fire)
-        on_job.assert_not_awaited()
+        state = s2._state.get("j1")
+        assert state is not None
+        assert state.last_status == "ok"
+        assert state.last_run_at_ms == _NOW_MS
 
+    async def test_state_survives_spec_reload(self, tmp_path) -> None:
+        """State persists independently of spec reloads."""
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
 
-# ---------------------------------------------------------------------------
-# set_enabled / remove_job / list_jobs
-# ---------------------------------------------------------------------------
+        on_job = AsyncMock()
+        s = _make_scheduler(tmp_path, on_job=on_job)
+        s._arm_timer = MagicMock()
+        await s.start()
 
+        # Set some state
+        s._state["j1"] = CronJobState(last_status="ok", last_run_at_ms=_NOW_MS - 100)
+        s._save_state()
 
-class TestMutations:
-    def test_set_enabled_disables(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        s.add_job(_make_cron_job(job_id="j1"))
-        assert s.set_enabled("j1", False) is True
-        assert s._jobs["j1"].enabled is False
+        # Reload spec (as if mtime changed)
+        s._load_spec()
 
-    def test_set_enabled_unknown(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        assert s.set_enabled("nope", True) is False
-
-    def test_remove_job(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        s.add_job(_make_cron_job(job_id="del:me"))
-        assert s.remove_job("del:me") is True
-        assert "del:me" not in {j.id for j in s.list_jobs()}
-
-    def test_remove_unknown(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        assert s.remove_job("ghost") is False
-
-    def test_list_jobs_empty(self, tmp_path) -> None:
-        s = _make_scheduler(tmp_path)
-        assert s.list_jobs() == []
+        # State should be unchanged
+        assert s._state["j1"].last_status == "ok"
+        assert s._state["j1"].last_run_at_ms == _NOW_MS - 100

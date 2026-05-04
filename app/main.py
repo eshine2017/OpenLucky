@@ -29,8 +29,7 @@ from app.bootstrap import BootstrapChecker  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.context_builder import ContextBuilder  # noqa: E402
 from app.daemon import Daemon  # noqa: E402
-from app.digest import build_morning_digest_prompt, read_user_timezone  # noqa: E402
-from app.scheduler import CronJob, CronSchedule, Scheduler  # noqa: E402
+from app.scheduler import CronJob, Scheduler  # noqa: E402
 from app.session_manager import SessionManager  # noqa: E402
 from app.telegram_bot import TelegramBot  # noqa: E402
 
@@ -134,30 +133,16 @@ def main() -> None:
             logger.error("send_message failed for chat %s: %s", chat_id, exc)
 
     # 5. Build scheduler and its callback.
-    scheduler_store = os.path.join(settings._effective_data_dir, "scheduler.json")
+    cron_spec_path = os.path.join(settings.workspace_dir, "cron.json")
+    cron_state_path = os.path.join(settings._effective_data_dir, "cron-state.json")
 
     async def _scheduler_callback(job: CronJob) -> None:
-        kind = job.payload.get("kind")
-        if kind == "morning_digest":
-            chat = db.get_most_recent_chat()
-            if chat is None:
-                logger.info("Digest skipped: no chats in DB")
-                return
-            prompt = build_morning_digest_prompt(settings.second_brain_dir)
-            if prompt is None:
-                logger.info("Digest skipped: no second brain sources")
-                return
-            result = daemon.run_scheduled_job(
-                chat_id=chat.telegram_chat_id,
-                prompt=prompt,
-                cwd=chat.cwd or settings.work_dir,
-                label="morning-digest",
-            )
-            logger.info("Digest dispatch result: %s (chat=%s)", result, chat.telegram_chat_id)
-        else:
-            logger.warning("Unknown scheduler job kind: %r", kind)
+        result = daemon.run_scheduled_job(prompt=job.prompt, label=job.id)
+        logger.info("Scheduled job %r dispatch result: %s", job.id, result)
 
-    scheduler = Scheduler(store_path=scheduler_store, on_job=_scheduler_callback)
+    scheduler = Scheduler(
+        spec_path=cron_spec_path, state_path=cron_state_path, on_job=_scheduler_callback
+    )
 
     # 6. Build the Telegram Application with a post_init hook that captures
     #    the running event loop and starts the scheduler.
@@ -166,17 +151,6 @@ def main() -> None:
         loop = asyncio.get_running_loop()
         _loop_ref.append(loop)
         scheduler._loop = loop
-
-        # Ensure the default morning digest job exists (create-if-missing)
-        tz = read_user_timezone(settings.workspace_dir) or "America/Los_Angeles"
-        scheduler.ensure_job(
-            CronJob(
-                id="system:morning_digest",
-                name="Morning digest",
-                schedule=CronSchedule(kind="cron", expr="0 8 * * *", tz=tz),
-                payload={"kind": "morning_digest"},
-            )
-        )
 
         await scheduler.start()
         logger.info("Event loop captured; scheduler started; bot is ready.")
@@ -193,6 +167,7 @@ def main() -> None:
     )
 
     # 7. Create Daemon and TelegramBot.
+    # daemon must be constructed before command_router (command_router takes daemon)
     daemon = Daemon(
         db_module=db,
         agent=claude_agent,
@@ -202,6 +177,7 @@ def main() -> None:
         default_cwd=settings.work_dir,
         context_builder=context_builder,
         bootstrap_checker=bootstrap_checker,
+        cron_spec_path=cron_spec_path,
     )
 
     command_router = CommandRouter(
@@ -210,6 +186,7 @@ def main() -> None:
         context_builder=context_builder,
         bootstrap_checker=bootstrap_checker,
         scheduler=scheduler,
+        daemon=daemon,
     )
 
     bot = TelegramBot(

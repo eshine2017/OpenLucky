@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _COMMANDS = {
     "!status", "!stop", "!new", "!reset", "!cwd", "!task",
-    "!soul", "!whoami", "!memory", "!digest", "!schedule",
+    "!soul", "!whoami", "!memory", "!schedule",
 }
 
 
@@ -34,12 +34,14 @@ class CommandRouter:
         context_builder: ContextBuilder | None = None,
         bootstrap_checker: BootstrapChecker | None = None,
         scheduler: Any | None = None,
+        daemon: Any | None = None,
     ) -> None:
         self._db = db
         self._agent = agent
         self._context_builder = context_builder
         self._bootstrap_checker = bootstrap_checker
         self._scheduler = scheduler
+        self._daemon = daemon
 
     # ------------------------------------------------------------------
     # Public API
@@ -89,14 +91,12 @@ class CommandRouter:
             return self._handle_whoami()
         if cmd == "!memory":
             return self._handle_memory()
-        if cmd == "!digest":
-            return self._handle_digest()
         if cmd == "!schedule":
-            return self._handle_schedule(arg)
+            return self._handle_schedule(chat_id, arg)
 
         return (
             "Unknown command. Available: "
-            "!status !stop !new !reset !cwd !task !soul !whoami !memory !digest !schedule list"
+            "!status !stop !new !reset !cwd !task !soul !whoami !memory !schedule"
         )
 
     # ------------------------------------------------------------------
@@ -237,35 +237,60 @@ class CommandRouter:
             return "(memory/MEMORY.md is empty or matches the default template)"
         return truncate_for_telegram(content)
 
-    def _handle_digest(self) -> str:
+    def _handle_schedule(self, chat_id: str, arg: str) -> str:
         if self._scheduler is None:
             return "Scheduler not configured."
+
+        parts = arg.strip().split(maxsplit=1)
+        subcmd = parts[0].lower() if parts else ""
+        subarg = parts[1] if len(parts) > 1 else ""
+
+        if subcmd == "list":
+            return self._render_schedule_list(self._scheduler)
+        if subcmd == "add":
+            return self._handle_schedule_add_cmd(chat_id)
+        if subcmd == "run":
+            if not subarg:
+                return "Usage: !schedule run <id>"
+            return self._handle_schedule_run(subarg.strip())
+        if subcmd == "remove":
+            if not subarg:
+                return "Usage: !schedule remove <id>"
+            job_id = subarg.strip()
+            removed = self._scheduler.remove_job(job_id)
+            return f"Job '{job_id}' removed." if removed else f"Job '{job_id}' not found."
+        if subcmd == "update":
+            return "not yet implemented; use !schedule remove <id> then !schedule add"
+        if not subcmd:
+            return "Usage: !schedule add | list | run <id> | remove <id>"
+        return "Usage: !schedule add | list | run <id> | remove <id>"
+
+    def _handle_schedule_add_cmd(self, chat_id: str) -> str:
+        if self._daemon is None:
+            return "Daemon not connected."
+        self._daemon.pending_actions[chat_id] = "schedule_add"
+        return (
+            "What do you want to schedule? Describe it in plain English\n"
+            "(e.g. \"daily 8am morning digest of my todos and projects\")."
+        )
+
+    def _handle_schedule_run(self, job_id: str) -> str:
         import asyncio
 
+        if self._scheduler is None:
+            return "Scheduler not configured."
         loop = getattr(self._scheduler, "_loop", None)
         if loop is None or not loop.is_running():
             return "Scheduler event loop not available."
 
-        future = asyncio.run_coroutine_threadsafe(
-            self._scheduler.run_now("system:morning_digest"),
-            loop,
-        )
+        future = asyncio.run_coroutine_threadsafe(self._scheduler.run_now(job_id), loop)
         try:
-            fired = future.result(timeout=300)
+            found = future.result(timeout=10)
         except TimeoutError:
-            return "Digest timed out."
+            return "Timeout waiting for job dispatch."
         except Exception as exc:  # noqa: BLE001
-            return f"Digest error: {exc}"
-
-        return "Morning digest triggered." if fired else "Digest job not found."
-
-    def _handle_schedule(self, arg: str) -> str:
-        if self._scheduler is None:
-            return "Scheduler not configured."
-        subcmd = arg.strip().lower()
-        if subcmd != "list":
-            return "Usage: !schedule list"
-        return self._render_schedule_list(self._scheduler)
+            return f"Error: {exc}"
+        return f"Job '{job_id}' dispatched." if found else f"Job '{job_id}' not found."
 
     def _render_schedule_list(self, scheduler: Any) -> str:
         jobs = scheduler.list_jobs()
@@ -277,13 +302,13 @@ class CommandRouter:
             status_icon = "✓" if job.enabled else "✗"
             next_run = "(unknown)"
             if job.state.next_run_at_ms is not None:
-                from datetime import datetime
-
                 dt = datetime.fromtimestamp(job.state.next_run_at_ms / 1000, tz=UTC)
                 next_run = dt.strftime("%Y-%m-%d %H:%M UTC")
+            tz_label = getattr(job, "tz", "") or "UTC"
             last_status = job.state.last_status or "never run"
             lines.append(
                 f"{status_icon} [{job.id}] {job.name}\n"
+                f"   schedule: {getattr(job, 'cron_expr', '?')} ({tz_label})\n"
                 f"   next: {next_run} | last: {last_status}"
             )
         return "\n\n".join(lines)

@@ -41,6 +41,7 @@ class Daemon:
         default_cwd: str = "/tmp/openlucky_work",
         context_builder: ContextBuilder | None = None,
         bootstrap_checker: BootstrapChecker | None = None,
+        cron_spec_path: str = "",
     ) -> None:
         self._db = db_module
         self._agent = agent
@@ -50,10 +51,14 @@ class Daemon:
         self._default_cwd = default_cwd
         self._context_builder = context_builder
         self._bootstrap_checker = bootstrap_checker
+        self._cron_spec_path = cron_spec_path
 
         # chat_id → job_id for currently running jobs
         self.running_locks: dict[str, str] = {}
         self._lock = threading.Lock()
+
+        # Pending one-shot actions set by command handlers
+        self.pending_actions: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Public entry point (called from the Telegram handler thread)
@@ -66,6 +71,12 @@ class Daemon:
         If a job is already running for this chat, reply with a notice and return.
         Otherwise create a new job record and launch a background thread.
         """
+        # Check for a pending one-shot action before the busy check
+        pending = self.pending_actions.pop(chat_id, None)
+        if pending == "schedule_add":
+            self._handle_schedule_add(chat_id, text)
+            return
+
         with self._lock:
             active_job_id = self.running_locks.get(chat_id)
 
@@ -139,14 +150,13 @@ class Daemon:
     def run_scheduled_job(
         self,
         *,
-        chat_id: str,
         prompt: str,
-        cwd: str,
         label: str,
     ) -> str:
         """
         Dispatch a scheduled (non-interactive) job.
 
+        Finds the most recent chat automatically.
         Returns one of: "dispatched", "skipped:busy",
         "skipped:bootstrap", "skipped:no_chat".
 
@@ -154,16 +164,22 @@ class Daemon:
         last_active_at, or last_summary — scheduled runs are transient and must not
         corrupt the user's interactive session.
         """
-        chat_state = self._db.get_chat(chat_id)
-        if chat_state is None:
-            logger.info("Scheduled job %r skipped: no chat %s", label, chat_id)
+        chat = self._db.get_most_recent_chat()
+        if chat is None:
+            logger.info("Scheduled job %r skipped: no chat in DB", label)
             return "skipped:no_chat"
+
+        chat_id = chat.telegram_chat_id
+        chat_state = chat
 
         if self._bootstrap_checker is not None:
             bs = self._bootstrap_checker.check(chat_state)
             if bs.state != BootstrapState.COMPLETE:
                 logger.info("Scheduled job %r skipped: bootstrap incomplete for %s", label, chat_id)
                 return "skipped:bootstrap"
+
+        prefixed_prompt = self._build_scheduled_prompt(prompt)
+        cwd = chat_state.cwd or self._default_cwd
 
         job_id = str(uuid.uuid4())
         raw_output_path = os.path.join(self._jobs_dir, f"{job_id}.log")
@@ -191,7 +207,7 @@ class Daemon:
 
         thread = threading.Thread(
             target=self._run_scheduled_job_thread,
-            args=(job, chat_state, prompt, cwd, raw_output_path),
+            args=(job, chat_state, prefixed_prompt, cwd, raw_output_path),
             daemon=True,
             name=f"sched-{label}-{job_id[:8]}",
         )
@@ -350,6 +366,111 @@ class Daemon:
     # ------------------------------------------------------------------
     # Prompt construction (normal path)
     # ------------------------------------------------------------------
+
+    def _build_scheduled_prompt(self, prompt: str) -> str:
+        """Build a prompt for a scheduled job, prepending context if available."""
+        if self._context_builder is None:
+            return prompt
+        try:
+            prefix = self._context_builder.build_prefix()
+            if prefix:
+                return f"{prefix}\n\n---\n\n# Scheduled Task\n{prompt}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Context builder failed for scheduled job: %s", exc)
+        return prompt
+
+    def _build_schedule_add_prompt(self, user_request: str) -> str:
+        """Build the prompt for Claude to add a scheduled job to cron.json."""
+        prefix = ""
+        tz = "ASK_USER"
+        if self._context_builder is not None:
+            try:
+                prefix = self._context_builder.build_prefix()
+                from app.context_builder import read_user_timezone
+
+                tz_val = read_user_timezone(self._context_builder._workspace_dir)
+                if tz_val:
+                    tz = tz_val
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to read context for schedule add: %s", exc)
+
+        cron_path = self._cron_spec_path or "(cron.json path not configured)"
+
+        task_instructions = (
+            "# Task: add a recurring scheduled job\n\n"
+            f"Schedule definitions live at: {cron_path}\n\n"
+            "Schema (one entry per job, JSON array under `jobs`):\n"
+            "  id          short-snake-case-id (must be unique)\n"
+            "  name        human-readable name\n"
+            "  enabled     true\n"
+            "  cron_expr   5-field cron expression\n"
+            f"  tz          IANA timezone (pre-filled: {tz})\n"
+            "  prompt      the full prompt to send when fired — self-contained,\n"
+            "              because SOUL/USER/MEMORY context is auto-prepended\n\n"
+            "Read the file (create if missing), append a new entry, write it back.\n"
+            "If `tz` above is ASK_USER, ask the user for their timezone before writing.\n"
+            "If anything else is unclear (timing, sources, frequency), ask the user.\n"
+            "Confirm with a one-line summary when done.\n\n"
+            f"User request:\n{user_request}"
+        )
+        if prefix:
+            return f"{prefix}\n\n---\n\n{task_instructions}"
+        return task_instructions
+
+    def _handle_schedule_add(self, chat_id: str, user_request: str) -> None:
+        """Handle the follow-up message after '!schedule add'."""
+        with self._lock:
+            busy = chat_id in self.running_locks
+
+        if busy:
+            self._send(
+                chat_id,
+                "A task is already running. Try !schedule add again when free.",
+            )
+            return
+
+        prompt = self._build_schedule_add_prompt(user_request)
+
+        chat_state = self._db.get_chat(chat_id)
+        if chat_state is None:
+            chat_state = ChatState(telegram_chat_id=chat_id)
+
+        cwd = chat_state.cwd or self._default_cwd
+
+        job_id = str(uuid.uuid4())
+        raw_output_path = os.path.join(self._jobs_dir, f"{job_id}.log")
+        job = Job(
+            job_id=job_id,
+            telegram_chat_id=chat_id,
+            session_id=None,
+            user_message=f"[schedule-add] {user_request[:80]}",
+            status=JobStatus.queued,
+        )
+
+        with self._lock:
+            if chat_id in self.running_locks:
+                self._send(
+                    chat_id,
+                    "A task is already running. Try !schedule add again when free.",
+                )
+                return
+            self.running_locks[chat_id] = job_id
+
+        try:
+            self._db.create_job(job)
+        except Exception:
+            with self._lock:
+                self.running_locks.pop(chat_id, None)
+            raise
+
+        thread = threading.Thread(
+            target=self._run_scheduled_job_thread,
+            args=(job, chat_state, prompt, cwd, raw_output_path),
+            daemon=True,
+            name=f"schedule-add-{job_id[:8]}",
+        )
+        thread.start()
+        logger.info("Launched schedule-add job %s (chat=%s)", job_id, chat_id)
 
     def _build_prompt(self, user_message: str, mode: str) -> str:
         if self._context_builder is None:

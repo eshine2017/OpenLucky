@@ -65,6 +65,10 @@ For a separate dev bot, copy `config/settings.dev.yaml.example` to `config/setti
 | `!soul` | Show bot identity |
 | `!whoami` | Show user profile |
 | `!memory` | Show long-term memory |
+| `!schedule list` | List all scheduled jobs |
+| `!schedule add` | Create a new scheduled job (conversational) |
+| `!schedule run <id>` | Run a job immediately |
+| `!schedule remove <id>` | Delete a scheduled job |
 
 Any other message is sent to Claude Code as a prompt. Consecutive messages within 30 minutes resume the same session automatically.
 

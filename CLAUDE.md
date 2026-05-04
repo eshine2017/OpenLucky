@@ -59,6 +59,8 @@ Claude Code CLI  →  summary sent back to Telegram
 | `daemon.py` | Job lifecycle orchestration; owns the event queue |
 | `command_router.py` | Parses and executes `!commands`; never touches Claude |
 | `session_manager.py` | Decides new vs resume; reads/writes `chats` table |
+| `scheduler.py` | Async cron loop; loads spec, computes next runs, calls `run_scheduled_job` |
+| `context_builder.py` | Builds system-prompt prefix from SOUL/USER/MEMORY files |
 | `agents/claude_code.py` | Spawns subprocess, cancels it, parses stream-json output |
 | `db.py` | SQLite init and CRUD |
 | `models.py` | Dataclasses: `Job`, `ChatState`, `RunResult` |
@@ -102,6 +104,36 @@ Otherwise: new session.
 | `!soul` | Show bot identity (SOUL.md) |
 | `!whoami` | Show user profile (USER.md) |
 | `!memory` | Show long-term memory (MEMORY.md) |
+| `!schedule list` | List all cron jobs with next-run time and last status |
+| `!schedule add` | Start a conversational flow to create a new cron job |
+| `!schedule run <id>` | Trigger a cron job immediately (off-schedule) |
+| `!schedule remove <id>` | Delete a cron job |
+
+## Scheduler
+
+The scheduler is a generic cron runner. Each job is just `{id, name, cron_expr, tz, prompt}` — no domain coupling.
+
+### File split
+
+| File | Owner | Purpose |
+|---|---|---|
+| `<workspace>/cron.json` | Claude (editable) | Job specs — id, name, enabled, cron_expr, tz, prompt |
+| `<data>/cron-state.json` | Daemon (runtime) | Next-run timestamps and last-run results |
+
+The spec file is the single source of truth for *what* jobs run and *when*. The state file tracks *runtime* data. Claude can freely edit `cron.json`; the daemon owns `cron-state.json` and never writes `cron.json`.
+
+### Mtime reload
+
+Before each scheduler tick the spec file's mtime is checked. If it changed since last load, the spec is reloaded. This means adding or editing jobs in `cron.json` takes effect within one tick interval (default: 60 s) with no daemon restart.
+
+### `!schedule add` conversational flow
+
+1. User sends `!schedule add [optional description]`.
+2. `CommandRouter` sets `daemon.pending_actions[chat_id] = "schedule_add"`.
+3. The user's next non-command message is intercepted by `Daemon` and routed to `_handle_schedule_add`.
+4. `Daemon` calls `ClaudeCodeAgent` with a prompt that includes the SOUL/USER/MEMORY context, the `cron.json` schema, and the user's timezone (read from USER.md).
+5. Claude writes the new job directly to `cron.json` and replies with a confirmation.
+6. The scheduler reloads on the next tick and begins running the job.
 
 ## Second Brain
 
