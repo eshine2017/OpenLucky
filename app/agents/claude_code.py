@@ -37,11 +37,13 @@ class ClaudeCodeAgent:
         work_dir: str,
         workspace_dir: str = "",
         second_brain_dir: str = "",
+        images_dir: str = "",
     ) -> None:
         self.claude_bin = claude_bin
         self.work_dir = work_dir
         self.workspace_dir = workspace_dir
         self.second_brain_dir = second_brain_dir
+        self.images_dir = images_dir
         if second_brain_dir and not os.path.isdir(second_brain_dir):
             logger.warning(
                 "second_brain_dir %r does not exist; --add-dir will be skipped until it is created",
@@ -61,6 +63,7 @@ class ClaudeCodeAgent:
         cwd: str,
         session_id: str | None = None,
         job_id: str | None = None,
+        image_paths: list[str] | None = None,
     ) -> RunResult:
         """
         Run Claude Code with the given prompt.
@@ -76,7 +79,7 @@ class ClaudeCodeAgent:
         -------
         RunResult with parsed session_id, stdout, stderr, exit_code and summary.
         """
-        cmd = self._build_command(prompt, session_id)
+        cmd = self._build_command(prompt, session_id, image_paths=image_paths)
         effective_cwd = cwd if os.path.isdir(cwd) else self.work_dir
         os.makedirs(effective_cwd, exist_ok=True)
 
@@ -154,7 +157,12 @@ class ClaudeCodeAgent:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _build_command(self, prompt: str, session_id: str | None) -> list[str]:
+    def _build_command(
+        self,
+        prompt: str,
+        session_id: str | None,
+        image_paths: list[str] | None = None,
+    ) -> list[str]:
         cmd = [
             self.claude_bin,
             "-p",
@@ -169,6 +177,8 @@ class ClaudeCodeAgent:
             cmd += ["--add-dir", self.workspace_dir]
         if self.second_brain_dir and os.path.isdir(self.second_brain_dir):
             cmd += ["--add-dir", self.second_brain_dir]
+        if image_paths and self.images_dir:
+            cmd += ["--add-dir", self.images_dir]
         if session_id:
             cmd += ["--resume", session_id]
         return cmd

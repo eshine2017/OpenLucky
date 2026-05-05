@@ -7,6 +7,7 @@ Thread-safe via a module-level lock and check_same_thread=False.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -116,6 +117,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after the initial schema without dropping existing data."""
     _ensure_column(conn, "chats", "bootstrap_session_id", "TEXT")
     _ensure_column(conn, "jobs", "kind", "TEXT")
+    _ensure_column(conn, "jobs", "image_paths", "TEXT")
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +221,9 @@ def create_job(job: Job) -> None:
             """
             INSERT INTO jobs
                 (job_id, telegram_chat_id, session_id, user_message, status,
-                 started_at, finished_at, exit_code, result_summary, raw_output_path, kind)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 started_at, finished_at, exit_code, result_summary, raw_output_path,
+                 kind, image_paths)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.job_id,
@@ -234,6 +237,7 @@ def create_job(job: Job) -> None:
                 job.result_summary,
                 job.raw_output_path,
                 job.kind,
+                json.dumps(job.image_paths),
             ),
         )
         conn.commit()
@@ -254,7 +258,8 @@ def update_job(job: Job) -> None:
                 exit_code       = ?,
                 result_summary  = ?,
                 raw_output_path = ?,
-                kind            = ?
+                kind            = ?,
+                image_paths     = ?
             WHERE job_id = ?
             """,
             (
@@ -266,6 +271,7 @@ def update_job(job: Job) -> None:
                 job.result_summary,
                 job.raw_output_path,
                 job.kind,
+                json.dumps(job.image_paths),
                 job.job_id,
             ),
         )
@@ -304,6 +310,7 @@ def get_active_job(chat_id: str) -> Job | None:
 
 def _row_to_job(row: sqlite3.Row) -> Job:
     keys = row.keys()
+    raw_image_paths = row["image_paths"] if "image_paths" in keys else None
     return Job(
         job_id=row["job_id"],
         telegram_chat_id=row["telegram_chat_id"],
@@ -316,6 +323,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         result_summary=row["result_summary"],
         raw_output_path=row["raw_output_path"],
         kind=row["kind"] if "kind" in keys else None,
+        image_paths=json.loads(raw_image_paths) if raw_image_paths else [],
     )
 
 

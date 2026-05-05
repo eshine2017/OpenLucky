@@ -66,6 +66,7 @@ Claude Code CLI  →  summary sent back to Telegram
 | `models.py` | Dataclasses: `Job`, `ChatState`, `RunResult` |
 | `config.py` | Loads settings.yaml; respects `CONFIG_FILE` env var |
 | `formatter.py` | Formats messages for Telegram |
+| `image_store.py` | Saves Telegram photos to `data/images/`; `cleanup_old` prunes files >24 h |
 
 `ClaudeCodeAgent` knows nothing about Telegram or the database — that boundary is intentional and must be preserved.
 

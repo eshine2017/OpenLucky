@@ -66,7 +66,7 @@ class Daemon:
 
     def on_message(self, chat_id: str, text: str) -> None:
         """
-        Handle an incoming user message.
+        Handle an incoming user text message.
 
         If a job is already running for this chat, reply with a notice and return.
         Otherwise create a new job record and launch a background thread.
@@ -77,6 +77,19 @@ class Daemon:
             self._handle_schedule_add(chat_id, text)
             return
 
+        self._dispatch_user_turn(chat_id, text, [])
+
+    def on_photo_message(self, chat_id: str, caption: str, image_paths: list[str]) -> None:
+        """Handle an incoming photo message (with optional caption)."""
+        pending = self.pending_actions.pop(chat_id, None)
+        if pending == "schedule_add":
+            self._handle_schedule_add(chat_id, caption)
+            return
+        self._dispatch_user_turn(chat_id, caption, image_paths)
+
+    def _dispatch_user_turn(
+        self, chat_id: str, text: str, image_paths: list[str]
+    ) -> None:
         with self._lock:
             active_job_id = self.running_locks.get(chat_id)
 
@@ -108,13 +121,16 @@ class Daemon:
                 self._launch_bootstrap_job(chat_id, text, chat_state, bs)
                 return
 
-        # Normal path — honour the force_new_next flag then decide session mode
+        # Normal path — honour the force_new_next flag then decide session mode.
+        # For photos, pass "" to SessionManager so keyword heuristics are bypassed:
+        # an active session always resumes; no session always starts new.
         force_new = chat_state.force_new_next
         if force_new:
             chat_state.force_new_next = False  # consume the flag
             self._db.upsert_chat(chat_state)
 
-        decision = self._session_manager.decide(chat_state, text, force_new=force_new)
+        decision_text = "" if image_paths else text
+        decision = self._session_manager.decide(chat_state, decision_text, force_new=force_new)
 
         # Build job record
         job_id = str(uuid.uuid4())
@@ -126,6 +142,7 @@ class Daemon:
             session_id=decision.session_id,
             user_message=text,
             status=JobStatus.queued,
+            image_paths=image_paths,
         )
         self._db.create_job(job)
 
@@ -472,21 +489,36 @@ class Daemon:
         thread.start()
         logger.info("Launched schedule-add job %s (chat=%s)", job_id, chat_id)
 
-    def _build_prompt(self, user_message: str, mode: str) -> str:
+    def _build_prompt(
+        self, user_message: str, mode: str, image_paths: list[str] | None = None
+    ) -> str:
+        base = user_message
+
+        if image_paths:
+            caption = user_message if user_message.strip() else "(no caption)"
+            paths_block = "\n".join(f"- {p}" for p in image_paths)
+            image_section = (
+                f"\n\n## Attached images\n"
+                f"The user sent the following image(s). Use the Read tool to view each one "
+                f"before replying.\n{paths_block}\n\n"
+                f"Caption: {caption}"
+            )
+            base = image_section
+
         if self._context_builder is None:
-            return user_message
+            return base
         try:
             if mode == "new":
                 prefix = self._context_builder.build_prefix()
                 if prefix:
-                    return f"{prefix}\n\n---\n\n# Task\n{user_message}"
+                    return f"{prefix}\n\n---\n\n# Task\n{base}"
             else:
                 hint = self._context_builder.build_resume_hint()
                 if hint:
-                    return f"{hint}\n\n{user_message}"
+                    return f"{hint}\n\n{base}"
         except Exception as exc:  # noqa: BLE001
             logger.warning("Context builder failed, using raw message: %s", exc)
-        return user_message
+        return base
 
     # ------------------------------------------------------------------
     # Background job execution
@@ -531,7 +563,7 @@ class Daemon:
             if is_bootstrap:
                 prompt = bootstrap_prompt or job.user_message
             else:
-                prompt = self._build_prompt(job.user_message, decision.mode)
+                prompt = self._build_prompt(job.user_message, decision.mode, job.image_paths)
 
             # Invoke agent
             result = self._agent.run(
@@ -539,6 +571,7 @@ class Daemon:
                 cwd=cwd,
                 session_id=decision.session_id,
                 job_id=job.job_id,
+                image_paths=job.image_paths or None,
             )
 
             # Persist raw output

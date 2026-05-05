@@ -23,7 +23,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E402
 
-from app import config, db  # noqa: E402
+from app import config, db, image_store  # noqa: E402
 from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
 from app.bootstrap import BootstrapChecker  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
@@ -82,6 +82,9 @@ def main() -> None:
     # 2. Initialise database (also creates data/jobs and data/logs)
     db.init(settings.db_path, data_dir=settings._effective_data_dir)
 
+    # Clean up images older than 24 hours from a previous run
+    image_store.cleanup_old(settings.images_dir)
+
     # 3. Bootstrap workspace and create domain objects
     _bootstrap_workspace(settings.workspace_dir)
 
@@ -99,6 +102,7 @@ def main() -> None:
         work_dir=settings.work_dir,
         workspace_dir=settings.workspace_dir,
         second_brain_dir=settings.second_brain_dir,
+        images_dir=settings.images_dir,
     )
 
     session_manager = SessionManager(
@@ -194,9 +198,11 @@ def main() -> None:
         allowed_users=settings.allowed_users,
         daemon=daemon,
         command_router=command_router,
+        images_dir=settings.images_dir,
     )
     bot._app = tg_app
     tg_app.add_handler(MessageHandler(filters.TEXT, bot._on_text_message))
+    tg_app.add_handler(MessageHandler(filters.PHOTO, bot._on_photo_message))
 
     # 8. Hand control to PTB — it creates and manages its own event loop.
     logger.info("Bot polling started.")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,24 +29,26 @@ def mock_command_router():
 
 
 @pytest.fixture()
-def bot_no_restrictions(mock_daemon, mock_command_router):
+def bot_no_restrictions(mock_daemon, mock_command_router, tmp_path):
     """TelegramBot with an empty allowed_users list (all users allowed)."""
     return TelegramBot(
         token="test-token",
         allowed_users=[],
         daemon=mock_daemon,
         command_router=mock_command_router,
+        images_dir=str(tmp_path / "images"),
     )
 
 
 @pytest.fixture()
-def bot_with_allowlist(mock_daemon, mock_command_router):
+def bot_with_allowlist(mock_daemon, mock_command_router, tmp_path):
     """TelegramBot that only allows user 111."""
     return TelegramBot(
         token="test-token",
         allowed_users=[111],
         daemon=mock_daemon,
         command_router=mock_command_router,
+        images_dir=str(tmp_path / "images"),
     )
 
 
@@ -230,3 +232,111 @@ class TestGetApplication:
     def test_raises_when_not_started(self, bot_no_restrictions):
         with pytest.raises(RuntimeError, match="not been started"):
             bot_no_restrictions.get_application()
+
+
+# ---------------------------------------------------------------------------
+# _on_photo_message()
+# ---------------------------------------------------------------------------
+
+
+def _make_photo_update(user_id: int, chat_id: str, caption: str | None = None) -> MagicMock:
+    """Build a minimal mock telegram Update with a photo."""
+    update = MagicMock()
+    update.message = MagicMock()
+    update.message.caption = caption
+    update.message.reply_text = AsyncMock()
+
+    # photo[-1] is the largest size
+    photo_size = MagicMock()
+    photo_size.file_id = "file-abc123"
+    update.message.photo = [photo_size]
+
+    update.effective_user = MagicMock()
+    update.effective_user.id = user_id
+
+    update.effective_chat = MagicMock()
+    update.effective_chat.id = int(chat_id)
+
+    return update
+
+
+def _make_photo_context(file_bytes: bytes = b"fake-image") -> MagicMock:
+    ctx = MagicMock()
+    mock_file = AsyncMock()
+    mock_file.download_as_bytearray = AsyncMock(return_value=bytearray(file_bytes))
+    ctx.bot.get_file = AsyncMock(return_value=mock_file)
+    return ctx
+
+
+class TestOnPhotoMessage:
+    @pytest.mark.asyncio
+    async def test_unauthorized_user_rejected(self, bot_with_allowlist):
+        update = _make_photo_update(user_id=999, chat_id="42")
+        ctx = _make_photo_context()
+
+        await bot_with_allowlist._on_photo_message(update, ctx)
+
+        update.message.reply_text.assert_called_once_with("Unauthorized.")
+        bot_with_allowlist._daemon.on_photo_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_authorized_user_triggers_on_photo_message(self, bot_no_restrictions, tmp_path):
+        update = _make_photo_update(user_id=1, chat_id="42", caption="nice photo")
+        ctx = _make_photo_context()
+
+        with patch("app.telegram_bot.image_store") as mock_store:
+            mock_store.save_telegram_photo.return_value = str(tmp_path / "images" / "pic.jpg")
+            await bot_no_restrictions._on_photo_message(update, ctx)
+
+        bot_no_restrictions._daemon.on_photo_message.assert_called_once()
+        call_args = bot_no_restrictions._daemon.on_photo_message.call_args[0]
+        assert call_args[0] == "42"
+        assert call_args[1] == "nice photo"
+
+    @pytest.mark.asyncio
+    async def test_no_caption_passes_empty_string(self, bot_no_restrictions, tmp_path):
+        update = _make_photo_update(user_id=1, chat_id="42", caption=None)
+        ctx = _make_photo_context()
+
+        with patch("app.telegram_bot.image_store") as mock_store:
+            mock_store.save_telegram_photo.return_value = str(tmp_path / "images" / "pic.jpg")
+            await bot_no_restrictions._on_photo_message(update, ctx)
+
+        call_args = bot_no_restrictions._daemon.on_photo_message.call_args[0]
+        assert call_args[1] == ""  # empty string when no caption
+
+    @pytest.mark.asyncio
+    async def test_image_path_passed_to_daemon(self, bot_no_restrictions, tmp_path):
+        expected_path = str(tmp_path / "images" / "20260505-120000-abcd1234.jpg")
+        update = _make_photo_update(user_id=1, chat_id="42", caption="hi")
+        ctx = _make_photo_context()
+
+        with patch("app.telegram_bot.image_store") as mock_store:
+            mock_store.save_telegram_photo.return_value = expected_path
+            await bot_no_restrictions._on_photo_message(update, ctx)
+
+        call_args = bot_no_restrictions._daemon.on_photo_message.call_args[0]
+        assert call_args[2] == [expected_path]
+
+    @pytest.mark.asyncio
+    async def test_returns_early_when_message_is_none(self, bot_no_restrictions):
+        update = MagicMock()
+        update.message = None
+        update.effective_user = MagicMock()
+        update.effective_user.id = 1
+        ctx = _make_photo_context()
+
+        await bot_no_restrictions._on_photo_message(update, ctx)
+
+        bot_no_restrictions._daemon.on_photo_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_early_when_user_is_none(self, bot_no_restrictions):
+        update = MagicMock()
+        update.message = MagicMock()
+        update.effective_user = None
+        ctx = _make_photo_context()
+
+        await bot_no_restrictions._on_photo_message(update, ctx)
+
+        bot_no_restrictions._daemon.on_photo_message.assert_not_called()

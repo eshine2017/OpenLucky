@@ -436,3 +436,110 @@ class TestDefaultCwd:
 
         call_kw = mock_agent.run.call_args[1]
         assert call_kw["cwd"] == "/tmp/openlucky_work"
+
+
+# ---------------------------------------------------------------------------
+# on_photo_message()
+# ---------------------------------------------------------------------------
+
+
+class TestOnPhotoMessage:
+    def _setup(self, tmp_path):
+        daemon, mock_db, mock_agent, mock_sm, mock_send = _make_daemon(tmp_path)
+        mock_agent.run.return_value = _make_run_result()
+        mock_db.get_chat.return_value = _default_chat_state()
+        mock_sm.decide.return_value = _default_decision()
+        return daemon, mock_db, mock_agent, mock_sm, mock_send
+
+    def test_creates_job_with_image_paths(self, tmp_path):
+        daemon, mock_db, mock_agent, _, _ = self._setup(tmp_path)
+
+        daemon.on_photo_message("42", "look at this", ["/data/images/pic.jpg"])
+        time.sleep(0.3)
+
+        mock_db.create_job.assert_called_once()
+        job = mock_db.create_job.call_args[0][0]
+        assert job.image_paths == ["/data/images/pic.jpg"]
+
+    def test_agent_called_with_image_paths(self, tmp_path):
+        daemon, mock_db, mock_agent, _, _ = self._setup(tmp_path)
+
+        daemon.on_photo_message("42", "describe this", ["/data/images/x.jpg"])
+        time.sleep(0.3)
+
+        call_kw = mock_agent.run.call_args[1]
+        assert call_kw["image_paths"] == ["/data/images/x.jpg"]
+
+    def test_session_manager_called_with_empty_text_for_photos(self, tmp_path):
+        """Photos must bypass keyword heuristics — pass '' to SessionManager."""
+        daemon, mock_db, mock_agent, mock_sm, _ = self._setup(tmp_path)
+
+        daemon.on_photo_message("42", "continue please", ["/data/images/img.jpg"])
+        time.sleep(0.3)
+
+        decide_call = mock_sm.decide.call_args
+        text_arg = decide_call[0][1]  # second positional arg is the text
+        assert text_arg == ""
+
+    def test_caption_used_in_job_user_message(self, tmp_path):
+        daemon, mock_db, mock_agent, _, _ = self._setup(tmp_path)
+
+        daemon.on_photo_message("42", "my caption", ["/data/images/f.jpg"])
+        time.sleep(0.3)
+
+        job = mock_db.create_job.call_args[0][0]
+        assert job.user_message == "my caption"
+
+    def test_empty_caption_still_creates_job(self, tmp_path):
+        daemon, mock_db, mock_agent, _, _ = self._setup(tmp_path)
+
+        daemon.on_photo_message("42", "", ["/data/images/f.jpg"])
+        time.sleep(0.3)
+
+        mock_db.create_job.assert_called_once()
+
+    def test_rejects_when_already_running(self, tmp_path):
+        daemon, mock_db, _, _, mock_send = self._setup(tmp_path)
+        daemon.running_locks["42"] = "existing-job"
+
+        daemon.on_photo_message("42", "hi", ["/img.jpg"])
+
+        mock_send.assert_called_once()
+        mock_db.create_job.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _build_prompt() with images
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPromptWithImages:
+    def test_prompt_with_images_appends_section(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_prompt(
+            "describe this", mode="new", image_paths=["/data/images/photo.jpg"]
+        )
+        assert "## Attached images" in result
+        assert "/data/images/photo.jpg" in result
+
+    def test_prompt_with_empty_caption_shows_placeholder(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_prompt("", mode="new", image_paths=["/img.jpg"])
+        assert "(no caption)" in result
+
+    def test_prompt_without_images_has_no_attached_section(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_prompt("hello", mode="new", image_paths=[])
+        assert "Attached images" not in result
+
+    def test_prompt_with_images_includes_read_tool_instruction(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_prompt("look", mode="new", image_paths=["/img.jpg"])
+        assert "Read" in result
+
+    def test_prompt_with_multiple_images_lists_all_paths(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        paths = ["/a.jpg", "/b.jpg", "/c.jpg"]
+        result = daemon._build_prompt("three pics", mode="new", image_paths=paths)
+        for p in paths:
+            assert p in result

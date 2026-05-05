@@ -4,7 +4,7 @@ models.py — Dataclasses for openlucky domain objects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
 
@@ -49,6 +49,7 @@ class Job:
     result_summary: str | None = None
     raw_output_path: str | None = None
     kind: str | None = None
+    image_paths: list[str] = field(default_factory=list)
 
 
 @dataclass

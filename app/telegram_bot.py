@@ -11,6 +11,7 @@ from typing import Any
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
 
+from app import image_store
 from app.command_router import CommandRouter
 from app.daemon import Daemon
 
@@ -31,11 +32,13 @@ class TelegramBot:
         allowed_users: list[int],
         daemon: Daemon,
         command_router: CommandRouter,
+        images_dir: str = "",
     ) -> None:
         self._token = token
         self._allowed_users = allowed_users
         self._daemon = daemon
         self._command_router = command_router
+        self._images_dir = images_dir
         self._app: _App | None = None
 
     # ------------------------------------------------------------------
@@ -46,6 +49,7 @@ class TelegramBot:
         """Build the Application and start long-polling (blocks until stopped)."""
         self._app = ApplicationBuilder().token(self._token).build()
         self._app.add_handler(MessageHandler(filters.TEXT, self._on_text_message))
+        self._app.add_handler(MessageHandler(filters.PHOTO, self._on_photo_message))
         logger.info("Starting Telegram bot (long-polling)…")
         await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value]
 
@@ -85,3 +89,34 @@ class TelegramBot:
 
         # Regular message → hand off to daemon (non-blocking, runs in a thread)
         self._daemon.on_message(chat_id, text)
+
+    async def _on_photo_message(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if update.message is None or update.effective_user is None:
+            return
+
+        user_id = update.effective_user.id
+        chat_id = str(update.effective_chat.id)  # type: ignore[union-attr]
+        caption = update.message.caption or ""
+
+        logger.info("Photo from user %d (chat=%s)", user_id, chat_id)
+
+        if self._allowed_users and user_id not in self._allowed_users:
+            logger.warning("Unauthorized user %d tried to send a photo", user_id)
+            await update.message.reply_text("Unauthorized.")
+            return
+
+        # Download the largest available photo size
+        photo = update.message.photo[-1]
+        try:
+            tg_file = await context.bot.get_file(photo.file_id)
+            file_bytes = bytes(await tg_file.download_as_bytearray())
+            saved_path = image_store.save_telegram_photo(file_bytes, self._images_dir)
+        except Exception as exc:
+            logger.error("Failed to download/save photo from user %d: %s", user_id, exc)
+            await update.message.reply_text("Sorry, I couldn't download that image. Please try again.")
+            return
+
+        logger.info("Saved incoming photo to %s", saved_path)
+        self._daemon.on_photo_message(chat_id, caption, [saved_path])

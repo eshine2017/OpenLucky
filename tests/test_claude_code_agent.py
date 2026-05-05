@@ -356,3 +356,52 @@ class TestCancel:
 
         # Should not raise
         runner.cancel("j-gone")
+
+
+# ---------------------------------------------------------------------------
+# _build_command() — images_dir / image_paths
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCommandWithImages:
+    def test_image_paths_adds_add_dir_for_images_dir(self, tmp_path) -> None:
+        images_dir = str(tmp_path / "images")
+        os.makedirs(images_dir)
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", images_dir=images_dir)
+        cmd = runner._build_command("hi", session_id=None, image_paths=["/data/images/a.jpg"])
+        assert "--add-dir" in cmd
+        assert images_dir in cmd
+
+    def test_no_image_paths_no_images_dir_flag(self, tmp_path) -> None:
+        images_dir = str(tmp_path / "images")
+        os.makedirs(images_dir)
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", images_dir=images_dir)
+        cmd = runner._build_command("hi", session_id=None, image_paths=[])
+        assert images_dir not in cmd
+
+    def test_image_paths_none_no_images_dir_flag(self, tmp_path) -> None:
+        images_dir = str(tmp_path / "images")
+        os.makedirs(images_dir)
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", images_dir=images_dir)
+        cmd = runner._build_command("hi", session_id=None, image_paths=None)
+        assert images_dir not in cmd
+
+    def test_no_duplicate_add_dir_for_images(self, tmp_path) -> None:
+        images_dir = str(tmp_path / "images")
+        ws = str(tmp_path / "ws")
+        os.makedirs(images_dir)
+        os.makedirs(ws)
+        runner = ClaudeCodeAgent(
+            claude_bin="claude", work_dir="/tmp", workspace_dir=ws, images_dir=images_dir
+        )
+        cmd = runner._build_command("hi", session_id=None, image_paths=["/img.jpg"])
+        # images_dir should appear exactly once after --add-dir
+        assert cmd.count(images_dir) == 1
+
+    def test_empty_images_dir_skipped_even_with_image_paths(self) -> None:
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", images_dir="")
+        cmd = runner._build_command("hi", session_id=None, image_paths=["/img.jpg"])
+        # No images_dir set — should not crash and no empty string added as --add-dir value
+        pairs = list(zip(cmd, cmd[1:]))
+        add_dir_values = [b for a, b in pairs if a == "--add-dir"]
+        assert "" not in add_dir_values
