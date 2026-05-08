@@ -6,6 +6,7 @@ Commands are never forwarded to Claude Code.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import replace
@@ -289,8 +290,6 @@ class CommandRouter:
         )
 
     def _handle_schedule_run(self, job_id: str) -> str:
-        import asyncio
-
         if self._scheduler is None:
             return "Scheduler not configured."
         loop = getattr(self._scheduler, "_loop", None)

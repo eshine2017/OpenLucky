@@ -402,6 +402,6 @@ class TestBuildCommandWithImages:
         runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", images_dir="")
         cmd = runner._build_command("hi", session_id=None, image_paths=["/img.jpg"])
         # No images_dir set — should not crash and no empty string added as --add-dir value
-        pairs = list(zip(cmd, cmd[1:]))
+        pairs = list(zip(cmd, cmd[1:], strict=False))
         add_dir_values = [b for a, b in pairs if a == "--add-dir"]
         assert "" not in add_dir_values

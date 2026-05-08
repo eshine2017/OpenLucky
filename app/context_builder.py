@@ -86,6 +86,10 @@ class ContextBuilder:
         self._user_template = self._load_template("USER.md")
         self._memory_template = self._load_template(os.path.join("memory", "MEMORY.md"))
 
+    @property
+    def workspace_dir(self) -> str:
+        return self._workspace_dir
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

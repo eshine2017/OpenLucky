@@ -115,7 +115,9 @@ class TelegramBot:
             saved_path = image_store.save_telegram_photo(file_bytes, self._images_dir)
         except Exception as exc:
             logger.error("Failed to download/save photo from user %d: %s", user_id, exc)
-            await update.message.reply_text("Sorry, I couldn't download that image. Please try again.")
+            await update.message.reply_text(
+                "Sorry, I couldn't download that image. Please try again."
+            )
             return
 
         logger.info("Saved incoming photo to %s", saved_path)

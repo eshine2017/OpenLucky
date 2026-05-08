@@ -6,8 +6,6 @@ import os
 import time
 from pathlib import Path
 
-import pytest
-
 from app import image_store
 
 

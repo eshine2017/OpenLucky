@@ -20,6 +20,7 @@ class BaseAgent(Protocol):
         cwd: str,
         session_id: str | None = None,
         job_id: str | None = None,
+        image_paths: list[str] | None = None,
     ) -> RunResult:
         """Execute a prompt and return a RunResult."""
         ...

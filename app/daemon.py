@@ -414,7 +414,7 @@ class Daemon:
                 prefix = self._context_builder.build_prefix()
                 from app.context_builder import read_user_timezone
 
-                tz_val = read_user_timezone(self._context_builder._workspace_dir)
+                tz_val = read_user_timezone(self._context_builder.workspace_dir)
                 if tz_val:
                     tz = tz_val
             except Exception as exc:  # noqa: BLE001
@@ -509,7 +509,7 @@ class Daemon:
                 prefix = self._context_builder.build_prefix()
                 from app.context_builder import read_user_timezone
 
-                tz_val = read_user_timezone(self._context_builder._workspace_dir)
+                tz_val = read_user_timezone(self._context_builder.workspace_dir)
                 if tz_val:
                     tz = tz_val
             except Exception as exc:  # noqa: BLE001
@@ -684,7 +684,7 @@ class Daemon:
                 cwd=cwd,
                 session_id=decision.session_id,
                 job_id=job.job_id,
-                image_paths=job.image_paths or None,
+                image_paths=job.image_paths,
             )
 
             # Persist raw output
