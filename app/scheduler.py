@@ -187,7 +187,7 @@ class Scheduler:
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
-            async with contextlib.suppress(asyncio.CancelledError):  # type: ignore[attr-defined]
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
         self._task = None
         logger.info("Scheduler stopped")
