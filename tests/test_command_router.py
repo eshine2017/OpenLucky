@@ -342,11 +342,67 @@ class TestScheduleCommand:
         assert mock_daemon.pending_actions.get("1") == "schedule_add"
         assert len(result) > 0
 
-    def test_schedule_update_returns_not_implemented(self, mock_db, mock_claude_agent) -> None:
+    def test_schedule_update_no_id_returns_usage(self, mock_db, mock_claude_agent) -> None:
         mock_scheduler = MagicMock()
         r = CommandRouter(db=mock_db, agent=mock_claude_agent, scheduler=mock_scheduler)
         result = r.handle("1", "!schedule update")
-        assert "not yet implemented" in result
+        assert "Usage" in result
+        assert "update" in result
+
+    def test_schedule_update_unknown_id_returns_not_found(
+        self, mock_db, mock_claude_agent
+    ) -> None:
+        from app.scheduler import CronJob, CronJobState
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_jobs.return_value = [
+            CronJob(
+                id="morning",
+                name="Morning",
+                enabled=True,
+                cron_expr="0 8 * * *",
+                tz="UTC",
+                prompt="digest",
+                state=CronJobState(),
+            )
+        ]
+        mock_daemon = MagicMock()
+        mock_daemon.pending_actions = {}
+        r = CommandRouter(
+            db=mock_db,
+            agent=mock_claude_agent,
+            scheduler=mock_scheduler,
+            daemon=mock_daemon,
+        )
+        result = r.handle("1", "!schedule update unknown_id")
+        assert "not found" in result
+
+    def test_schedule_update_sets_pending_action(self, mock_db, mock_claude_agent) -> None:
+        from app.scheduler import CronJob, CronJobState
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.list_jobs.return_value = [
+            CronJob(
+                id="morning",
+                name="Morning",
+                enabled=True,
+                cron_expr="0 8 * * *",
+                tz="UTC",
+                prompt="digest",
+                state=CronJobState(),
+            )
+        ]
+        mock_daemon = MagicMock()
+        mock_daemon.pending_actions = {}
+        r = CommandRouter(
+            db=mock_db,
+            agent=mock_claude_agent,
+            scheduler=mock_scheduler,
+            daemon=mock_daemon,
+        )
+        result = r.handle("1", "!schedule update morning")
+        assert mock_daemon.pending_actions.get("1") == "schedule_update:morning"
+        assert "morning" in result
 
     def test_schedule_run_found(self, mock_db, mock_claude_agent) -> None:
         import concurrent.futures

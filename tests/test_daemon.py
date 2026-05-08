@@ -543,3 +543,65 @@ class TestBuildPromptWithImages:
         result = daemon._build_prompt("three pics", mode="new", image_paths=paths)
         for p in paths:
             assert p in result
+
+
+# ---------------------------------------------------------------------------
+# schedule_update pending action routing
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleUpdateRouting:
+    def test_on_message_routes_schedule_update_pending(self, tmp_path):
+        """pending 'schedule_update:<id>' triggers _handle_schedule_update, not _dispatch."""
+        daemon, mock_db, mock_agent, mock_sm, _ = _make_daemon(tmp_path)
+        mock_db.get_chat.return_value = _default_chat_state()
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.pending_actions["42"] = "schedule_update:morning"
+        daemon.on_message("42", "move to 9am")
+
+        # Should have launched a job for the update (not go through session manager)
+        mock_sm.decide.assert_not_called()
+        mock_db.create_job.assert_called_once()
+        job = mock_db.create_job.call_args[0][0]
+        assert "schedule-update:morning" in job.user_message
+
+    def test_on_photo_routes_schedule_update_pending(self, tmp_path):
+        """Photo messages also route schedule_update pending action."""
+        daemon, mock_db, mock_agent, mock_sm, _ = _make_daemon(tmp_path)
+        mock_db.get_chat.return_value = _default_chat_state()
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.pending_actions["42"] = "schedule_update:daily"
+        daemon.on_photo_message("42", "change prompt", ["/img.jpg"])
+
+        mock_sm.decide.assert_not_called()
+        mock_db.create_job.assert_called_once()
+        job = mock_db.create_job.call_args[0][0]
+        assert "schedule-update:daily" in job.user_message
+
+    def test_build_schedule_update_prompt_includes_job_json(self, tmp_path):
+        """Prompt includes the current job's JSON and the user request."""
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        current = '{"id": "morning", "cron_expr": "0 8 * * *"}'
+        result = daemon._build_schedule_update_prompt("morning", current, "move to 9am")
+        assert "morning" in result
+        assert "0 8 * * *" in result
+        assert "move to 9am" in result
+
+    def test_schedule_update_no_cron_spec_path_still_launches_job(self, tmp_path):
+        """When cron_spec_path is None, job is still dispatched with '{}' as placeholder."""
+        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
+        # cron_spec_path defaults to "" (falsy) in _make_daemon
+        assert not daemon._cron_spec_path
+
+        mock_db.get_chat.return_value = _default_chat_state()
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.pending_actions["42"] = "schedule_update:morning"
+        daemon.on_message("42", "move to 9am")
+
+        mock_db.create_job.assert_called_once()
+        # Verify the prompt was built with the empty placeholder
+        job = mock_db.create_job.call_args[0][0]
+        assert "schedule-update:morning" in job.user_message

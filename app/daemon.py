@@ -6,6 +6,7 @@ One chat = one running job at a time.  Background threads carry individual jobs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -76,6 +77,10 @@ class Daemon:
         if pending == "schedule_add":
             self._handle_schedule_add(chat_id, text)
             return
+        if pending and pending.startswith("schedule_update:"):
+            job_id = pending.split(":", 1)[1]
+            self._handle_schedule_update(chat_id, job_id, text)
+            return
 
         self._dispatch_user_turn(chat_id, text, [])
 
@@ -84,6 +89,10 @@ class Daemon:
         pending = self.pending_actions.pop(chat_id, None)
         if pending == "schedule_add":
             self._handle_schedule_add(chat_id, caption)
+            return
+        if pending and pending.startswith("schedule_update:"):
+            job_id = pending.split(":", 1)[1]
+            self._handle_schedule_update(chat_id, job_id, caption)
             return
         self._dispatch_user_turn(chat_id, caption, image_paths)
 
@@ -488,6 +497,110 @@ class Daemon:
         )
         thread.start()
         logger.info("Launched schedule-add job %s (chat=%s)", job_id, chat_id)
+
+    def _build_schedule_update_prompt(
+        self, job_id: str, current_job_json: str, user_request: str
+    ) -> str:
+        """Build the prompt for Claude to update an existing scheduled job in cron.json."""
+        prefix = ""
+        tz = "ASK_USER"
+        if self._context_builder is not None:
+            try:
+                prefix = self._context_builder.build_prefix()
+                from app.context_builder import read_user_timezone
+
+                tz_val = read_user_timezone(self._context_builder._workspace_dir)
+                if tz_val:
+                    tz = tz_val
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to read context for schedule update: %s", exc)
+
+        cron_path = self._cron_spec_path or "(cron.json path not configured)"
+
+        task_instructions = (
+            "# Task: update an existing scheduled job\n\n"
+            f"Schedule definitions live at: {cron_path}\n\n"
+            f"Current entry for job id='{job_id}':\n"
+            f"```json\n{current_job_json}\n```\n\n"
+            "Schema fields:\n"
+            "  id          short-snake-case-id (do NOT change the id)\n"
+            "  name        human-readable name\n"
+            "  enabled     true/false\n"
+            "  cron_expr   5-field cron expression\n"
+            f"  tz          IANA timezone (user's timezone: {tz})\n"
+            "  prompt      the full prompt to send when fired — self-contained,\n"
+            "              because SOUL/USER/MEMORY context is auto-prepended\n\n"
+            "Read the full cron.json file, find the entry with the matching id, "
+            "apply only the requested changes, preserve all other fields, and write it back.\n"
+            "Confirm with a one-line summary when done.\n\n"
+            f"User request:\n{user_request}"
+        )
+        if prefix:
+            return f"{prefix}\n\n---\n\n{task_instructions}"
+        return task_instructions
+
+    def _handle_schedule_update(
+        self, chat_id: str, job_id: str, user_request: str
+    ) -> None:
+        """Handle the follow-up message after '!schedule update <id>'."""
+        # Load current job JSON to embed in prompt
+        current_job_json = "{}"
+        cron_path = self._cron_spec_path
+        if cron_path and os.path.exists(cron_path):
+            try:
+                with open(cron_path, encoding="utf-8") as fh:
+                    spec_data = json.load(fh)
+                entry = next(
+                    (e for e in spec_data.get("jobs", []) if e.get("id") == job_id),
+                    None,
+                )
+                if entry:
+                    current_job_json = json.dumps(entry, indent=2)
+            except (OSError, json.JSONDecodeError, KeyError) as exc:
+                logger.warning("Could not read cron.json for update prompt: %s", exc)
+
+        prompt = self._build_schedule_update_prompt(job_id, current_job_json, user_request)
+
+        chat_state = self._db.get_chat(chat_id)
+        if chat_state is None:
+            chat_state = ChatState(telegram_chat_id=chat_id)
+
+        cwd = chat_state.cwd or self._default_cwd
+
+        sched_job_id = str(uuid.uuid4())
+        raw_output_path = os.path.join(self._jobs_dir, f"{sched_job_id}.log")
+        job = Job(
+            job_id=sched_job_id,
+            telegram_chat_id=chat_id,
+            session_id=None,
+            user_message=f"[schedule-update:{job_id}] {user_request[:80]}",
+            status=JobStatus.queued,
+        )
+
+        with self._lock:
+            if chat_id in self.running_locks:
+                self._send(
+                    chat_id,
+                    "A task is already running. Try !schedule update again when free.",
+                )
+                return
+            self.running_locks[chat_id] = sched_job_id
+
+        try:
+            self._db.create_job(job)
+        except Exception:
+            with self._lock:
+                self.running_locks.pop(chat_id, None)
+            raise
+
+        thread = threading.Thread(
+            target=self._run_scheduled_job_thread,
+            args=(job, chat_state, prompt, cwd, raw_output_path),
+            daemon=True,
+            name=f"schedule-update-{sched_job_id[:8]}",
+        )
+        thread.start()
+        logger.info("Launched schedule-update job %s (chat=%s)", sched_job_id, chat_id)
 
     def _build_prompt(
         self, user_message: str, mode: str, image_paths: list[str] | None = None

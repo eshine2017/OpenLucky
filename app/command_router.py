@@ -260,10 +260,10 @@ class CommandRouter:
             removed = self._scheduler.remove_job(job_id)
             return f"Job '{job_id}' removed." if removed else f"Job '{job_id}' not found."
         if subcmd == "update":
-            return "not yet implemented; use !schedule remove <id> then !schedule add"
-        if not subcmd:
-            return "Usage: !schedule add | list | run <id> | remove <id>"
-        return "Usage: !schedule add | list | run <id> | remove <id>"
+            if not subarg:
+                return "Usage: !schedule update <id>"
+            return self._handle_schedule_update_cmd(chat_id, subarg.strip())
+        return "Usage: !schedule add | list | run <id> | remove <id> | update <id>"
 
     def _handle_schedule_add_cmd(self, chat_id: str) -> str:
         if self._daemon is None:
@@ -272,6 +272,20 @@ class CommandRouter:
         return (
             "What do you want to schedule? Describe it in plain English\n"
             "(e.g. \"daily 8am morning digest of my todos and projects\")."
+        )
+
+    def _handle_schedule_update_cmd(self, chat_id: str, job_id: str) -> str:
+        if self._daemon is None:
+            return "Daemon not connected."
+        if self._scheduler is None:
+            return "Scheduler not configured."
+        jobs = self._scheduler.list_jobs()
+        if not any(j.id == job_id for j in jobs):
+            return f"Job '{job_id}' not found."
+        self._daemon.pending_actions[chat_id] = f"schedule_update:{job_id}"
+        return (
+            f"What do you want to change about '{job_id}'?\n"
+            "(e.g. \"move to 9am\", \"change prompt to ...\", \"disable it\")"
         )
 
     def _handle_schedule_run(self, job_id: str) -> str:

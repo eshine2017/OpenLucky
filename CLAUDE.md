@@ -109,6 +109,7 @@ Otherwise: new session.
 | `!schedule add` | Start a conversational flow to create a new cron job |
 | `!schedule run <id>` | Trigger a cron job immediately (off-schedule) |
 | `!schedule remove <id>` | Delete a cron job |
+| `!schedule update <id>` | Start a conversational flow to modify an existing cron job |
 
 ## Scheduler
 
@@ -125,7 +126,7 @@ The spec file is the single source of truth for *what* jobs run and *when*. The 
 
 ### Mtime reload
 
-Before each scheduler tick the spec file's mtime is checked. If it changed since last load, the spec is reloaded. This means adding or editing jobs in `cron.json` takes effect within one tick interval (default: 60 s) with no daemon restart.
+Before each scheduler tick the spec file's mtime is checked. If it changed since last load, the spec is reloaded. This means adding or editing jobs in `cron.json` takes effect within one tick interval (up to 5 minutes — `_MAX_SLEEP_S = 300`) with no daemon restart.
 
 ### `!schedule add` conversational flow
 
