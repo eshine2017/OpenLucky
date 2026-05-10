@@ -110,6 +110,7 @@ Otherwise: new session.
 | `!schedule run <id>` | Trigger a cron job immediately (off-schedule) |
 | `!schedule remove <id>` | Delete a cron job |
 | `!schedule update <id>` | Start a conversational flow to modify an existing cron job |
+| `!help` | Show all available commands grouped by category |
 
 ## Scheduler
 

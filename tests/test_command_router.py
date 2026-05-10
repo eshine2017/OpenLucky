@@ -180,15 +180,31 @@ class TestHandleTask:
 class TestUnknownCommand:
     def test_unknown_bang_command_returns_help(self, router) -> None:
         result = router.handle("1", "!nope")
-        assert "!status" in result
-        assert "!stop" in result
-        assert "!new" in result
-        assert "!reset" in result
-        assert "!cwd" in result
-        assert "!task" in result
-        assert "!soul" in result
-        assert "!whoami" in result
-        assert "!memory" in result
+        for name in ["!status", "!stop", "!new", "!reset", "!cwd", "!task",
+                     "!soul", "!whoami", "!memory", "!help", "!schedule"]:
+            assert name in result, f"Expected {name} in unknown-command help"
+
+    def test_unknown_command_prefixed_with_typo(self, router) -> None:
+        result = router.handle("1", "!nope")
+        assert result.startswith("Unknown command: !nope")
+
+    def test_unknown_command_preserves_original_casing(self, router) -> None:
+        result = router.handle("1", "!Foo")
+        assert "Unknown command: !Foo" in result
+
+    def test_unknown_command_includes_help_body(self, router) -> None:
+        result = router.handle("1", "!bad")
+        assert "[Info]" in result
+        assert "[Session]" in result
+        assert "[Schedule]" in result
+
+    def test_unknown_command_with_extra_args(self, router) -> None:
+        result = router.handle("1", "!nope arg1 arg2")
+        assert "Unknown command: !nope" in result
+
+    def test_unknown_command_within_telegram_limit(self, router) -> None:
+        result = router.handle("1", "!zzz")
+        assert len(result) <= 4096
 
 
 class TestMemoryCommands:
@@ -450,3 +466,76 @@ class TestScheduleCommand:
 
     def test_schedule_command_recognised(self, router) -> None:
         assert router.is_command("!schedule") is True
+
+
+class TestHelpCommand:
+    def test_help_is_recognised_by_is_command(self, router) -> None:
+        assert router.is_command("!help") is True
+
+    def test_help_returns_category_headers(self, router) -> None:
+        result = router.handle("1", "!help")
+        assert "[Info]" in result
+        assert "[Session]" in result
+        assert "[Schedule]" in result
+
+    def test_help_contains_all_top_level_commands(self, router) -> None:
+        result = router.handle("1", "!help")
+        for name in ["!status", "!soul", "!whoami", "!memory", "!help",
+                     "!new", "!reset", "!stop", "!cwd", "!task"]:
+            assert name in result, f"Expected {name} in help"
+
+    def test_help_contains_schedule_subcommands(self, router) -> None:
+        result = router.handle("1", "!help")
+        for sub in ["!schedule list", "!schedule add", "!schedule run",
+                    "!schedule remove", "!schedule update"]:
+            assert sub in result, f"Expected {sub!r} in help"
+
+    def test_help_contains_usage_for_arg_commands(self, router) -> None:
+        result = router.handle("1", "!help")
+        assert "!cwd <path>" in result
+        assert "!task <name>" in result
+        assert "!schedule run <id>" in result
+        assert "!schedule remove <id>" in result
+        assert "!schedule update <id>" in result
+
+    def test_help_case_insensitive(self, router) -> None:
+        result = router.handle("1", "!HELP")
+        assert "[Info]" in result
+
+    def test_help_ignores_args(self, router) -> None:
+        result = router.handle("1", "!help status")
+        assert "[Info]" in result
+        assert "[Session]" in result
+
+    def test_help_without_optional_deps(self, mock_db, mock_claude_agent) -> None:
+        r = CommandRouter(db=mock_db, agent=mock_claude_agent)
+        result = r.handle("1", "!help")
+        assert "[Info]" in result
+
+    def test_help_within_telegram_limit(self, router) -> None:
+        result = router.handle("1", "!help")
+        assert len(result) <= 4096
+
+    def test_help_categories_in_expected_order(self, router) -> None:
+        result = router.handle("1", "!help")
+        info_pos = result.index("[Info]")
+        session_pos = result.index("[Session]")
+        schedule_pos = result.index("[Schedule]")
+        assert info_pos < session_pos < schedule_pos
+
+
+class TestCommandSpecDriftGuard:
+    def test_every_top_level_command_in_routing_set_has_spec(self) -> None:
+        from app.command_help import COMMANDS
+        from app.command_router import _COMMANDS
+
+        spec_names = {spec.name for spec in COMMANDS}
+        for name in _COMMANDS:
+            assert name in spec_names, f"{name!r} in routing set but missing from COMMANDS spec"
+
+    def test_every_spec_name_in_routing_set(self) -> None:
+        from app.command_help import TOP_LEVEL_NAMES
+        from app.command_router import _COMMANDS
+
+        for name in TOP_LEVEL_NAMES:
+            assert name in _COMMANDS, f"{name!r} in spec but missing from routing set"

@@ -15,16 +15,15 @@ from typing import Any
 
 from app.agents.base import BaseAgent
 from app.bootstrap import BootstrapChecker
+from app.command_help import TOP_LEVEL_NAMES, render_help
 from app.context_builder import ContextBuilder
 from app.formatter import truncate_for_telegram
 from app.models import ChatState, ChatStatus, JobStatus
 
 logger = logging.getLogger(__name__)
 
-_COMMANDS = {
-    "!status", "!stop", "!new", "!reset", "!cwd", "!task",
-    "!soul", "!whoami", "!memory", "!schedule",
-}
+# Derived from the single source of truth in command_help.py
+_COMMANDS: frozenset[str] = TOP_LEVEL_NAMES
 
 
 class CommandRouter:
@@ -69,7 +68,8 @@ class CommandRouter:
         text:     Raw message text (starts with '/').
         """
         parts = text.strip().split(maxsplit=1)
-        cmd = parts[0].lower()
+        raw_cmd = parts[0]
+        cmd = raw_cmd.lower()
         arg = parts[1] if len(parts) > 1 else ""
 
         logger.info("Command %r from chat %s (arg=%r)", cmd, chat_id, arg)
@@ -94,11 +94,10 @@ class CommandRouter:
             return self._handle_memory()
         if cmd == "!schedule":
             return self._handle_schedule(chat_id, arg)
+        if cmd == "!help":
+            return render_help()
 
-        return (
-            "Unknown command. Available: "
-            "!status !stop !new !reset !cwd !task !soul !whoami !memory !schedule"
-        )
+        return render_help(unknown=raw_cmd)
 
     # ------------------------------------------------------------------
     # Command handlers
