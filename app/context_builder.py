@@ -10,8 +10,30 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
+
+
+def _build_now_line(tz_name: str | None, *, _now: datetime | None = None) -> str:
+    """Return a one-line current-time string in the given IANA timezone (UTC fallback).
+
+    _now: optional timezone-aware datetime used in tests; must have tzinfo set.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    if _now is not None and _now.tzinfo is None:
+        raise ValueError("_now must be timezone-aware")
+
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else UTC
+        resolved_name = tz_name or "UTC"
+    except (ZoneInfoNotFoundError, KeyError):
+        tz = UTC
+        resolved_name = "UTC"
+
+    now = _now.astimezone(tz) if _now is not None else datetime.now(tz=tz)
+    return f"{now.strftime('%Y-%m-%d %A %H:%M')} {resolved_name}"
 
 
 def read_user_timezone(workspace_dir: str) -> str | None:
@@ -98,8 +120,7 @@ class ContextBuilder:
         """
         Read workspace files and return a formatted prompt prefix.
 
-        Only called for new sessions. Returns "" when all sections are
-        empty or match unmodified templates. Never raises.
+        Always includes a <current_time> block. Never raises.
         """
         try:
             return self._assemble_prefix()
@@ -112,6 +133,8 @@ class ContextBuilder:
         hint = f"Memory files: {self._workspace_dir} — update them as you learn new facts."
         if self._second_brain_dir:
             hint += f" Second brain: {self._second_brain_dir.strip()}."
+        tz_name = read_user_timezone(self._workspace_dir)
+        hint += f" current_time: {_build_now_line(tz_name)}."
         return hint
 
     def read_soul(self) -> str:
@@ -147,9 +170,18 @@ class ContextBuilder:
             sections.append(block)
             total += len(block)
 
+        # Read timezone once; reused by both _section_content (USER.md) and now_block.
+        tz_name = read_user_timezone(self._workspace_dir)
+
         soul = self._section_content(self._soul_path, self._soul_template)
         user = self._section_content(self._user_path, self._user_template)
         memory = self._section_content(self._memory_path, self._memory_template)
+
+        # Always inject current local time so Claude never guesses the wrong day.
+        now_line = _build_now_line(tz_name)
+        now_block = f"<current_time>{now_line}</current_time>"
+        sections.append(now_block)
+        total += len(now_block)
 
         _add("bot_identity", "SOUL.md", soul)
         _add("user_profile", "USER.md", user, trust_attr="user-controlled")
@@ -169,9 +201,6 @@ class ContextBuilder:
         )
         if second_brain_note:
             footer += f"\n{second_brain_note}"
-
-        if not sections:
-            return second_brain_note and footer.lstrip("\n")
 
         return "\n\n".join(sections) + "\n" + footer
 

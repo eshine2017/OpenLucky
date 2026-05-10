@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import os
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +13,7 @@ from app.context_builder import (
     _MAX_SECTION_CHARS,
     _MAX_TOTAL_CHARS,
     ContextBuilder,
+    _build_now_line,
     read_user_timezone,
 )
 
@@ -68,9 +71,9 @@ def test_build_prefix_with_all_files(tmp_path):
 
 def test_build_prefix_missing_files(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
-    # No files created — should return "" without raising
+    # No files created — should still return current_time block without raising
     prefix = builder.build_prefix()
-    assert prefix == ""
+    assert "current_time" in prefix
 
 
 def test_build_prefix_empty_file(tmp_path):
@@ -129,10 +132,11 @@ def test_build_prefix_caps_total(tmp_path):
     assert len(prefix) <= _MAX_TOTAL_CHARS + 500
 
 
-def test_build_prefix_returns_empty_string_when_all_blank(tmp_path):
+def test_build_prefix_returns_current_time_when_all_blank(tmp_path):
     builder = _make_builder_no_templates(tmp_path)
     prefix = builder.build_prefix()
-    assert prefix == ""
+    # Always emits current_time even with no workspace files
+    assert "current_time" in prefix
     assert isinstance(prefix, str)
 
 
@@ -322,3 +326,96 @@ class TestReadUserTimezone:
 
     def test_no_user_md_returns_none(self, tmp_path) -> None:
         assert read_user_timezone(str(tmp_path)) is None
+
+
+# ---------------------------------------------------------------------------
+# _build_now_line
+# ---------------------------------------------------------------------------
+
+
+class TestBuildNowLine:
+    def test_uses_user_timezone(self) -> None:
+        from zoneinfo import ZoneInfo
+
+        # 2026-05-09 is a Saturday; fix to 09:30 LA time
+        fixed = datetime(2026, 5, 9, 9, 30, tzinfo=ZoneInfo("America/Los_Angeles"))
+        line = _build_now_line("America/Los_Angeles", _now=fixed)
+        assert "2026-05-09" in line
+        assert "Saturday" in line
+        assert "America/Los_Angeles" in line
+
+    def test_falls_back_to_utc_when_tz_none(self) -> None:
+        fixed = datetime(2026, 5, 9, 16, 30, tzinfo=UTC)
+        line = _build_now_line(None, _now=fixed)
+        assert "2026-05-09" in line
+        assert "UTC" in line
+
+    def test_falls_back_to_utc_when_tz_invalid(self) -> None:
+        fixed = datetime(2026, 5, 9, 16, 30, tzinfo=UTC)
+        line = _build_now_line("Not/AZone", _now=fixed)
+        assert "UTC" in line
+
+    def test_converts_utc_input_to_local_tz(self) -> None:
+        # UTC 23:00 Friday 2026-05-08 → Saturday 01:00 in Europe/Paris (UTC+2 / CEST)
+        fixed_utc = datetime(2026, 5, 8, 23, 0, tzinfo=UTC)
+        line = _build_now_line("Europe/Paris", _now=fixed_utc)
+        assert "2026-05-09" in line
+        assert "Saturday" in line
+        assert "Europe/Paris" in line
+
+    def test_returns_string(self) -> None:
+        line = _build_now_line(None)
+        assert isinstance(line, str)
+        assert len(line) > 0
+
+
+# ---------------------------------------------------------------------------
+# current_time injection in build_prefix / build_resume_hint
+# ---------------------------------------------------------------------------
+
+
+def test_build_prefix_includes_current_time_with_user_tz(tmp_path: Path) -> None:
+    builder = _make_builder_no_templates(tmp_path)
+    workspace = builder._workspace_dir
+    _write(os.path.join(workspace, "SOUL.md"), "I am a bot.")
+    _write(os.path.join(workspace, "USER.md"), "timezone: America/Los_Angeles\n")
+
+    prefix = builder.build_prefix()
+
+    assert "<current_time>" in prefix
+    assert "America/Los_Angeles" in prefix
+
+
+def test_build_prefix_includes_current_time_without_user_tz(tmp_path: Path) -> None:
+    # No USER.md — should still emit current_time block in UTC
+    builder = _make_builder_no_templates(tmp_path)
+    workspace = builder._workspace_dir
+    _write(os.path.join(workspace, "SOUL.md"), "I am a bot.")
+
+    prefix = builder.build_prefix()
+
+    assert "<current_time>" in prefix
+    assert "UTC" in prefix
+
+
+def test_build_prefix_current_time_appears_before_other_sections(tmp_path: Path) -> None:
+    builder = _make_builder_no_templates(tmp_path)
+    workspace = builder._workspace_dir
+    _write(os.path.join(workspace, "SOUL.md"), "I am a bot.")
+    _write(os.path.join(workspace, "USER.md"), "Name: Alice\ntimezone: UTC\n")
+
+    prefix = builder.build_prefix()
+
+    ct_pos = prefix.find("<current_time>")
+    soul_pos = prefix.find("bot_identity")
+    assert ct_pos < soul_pos
+
+
+def test_build_resume_hint_includes_current_time(tmp_path: Path) -> None:
+    builder = _make_builder_no_templates(tmp_path)
+
+    hint = builder.build_resume_hint()
+
+    assert "current_time" in hint
+    # Must remain a single line
+    assert "\n" not in hint.strip()
