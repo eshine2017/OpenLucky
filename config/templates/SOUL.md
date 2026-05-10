@@ -10,9 +10,14 @@
 - For multi-step tasks, outline plan first and wait for confirmation.
 
 ## Memory Management
-When you learn something worth remembering (user preferences, project facts,
-recurring patterns), update the relevant file directly:
-- Personal facts about the user → USER.md
-- Project context, decisions, notes → memory/MEMORY.md
-- Changes to how I should behave → SOUL.md
+
+Three context files with non-overlapping roles:
+- **SOUL.md** — how I behave (bot-level, user-agnostic)
+- **USER.md** — who the user is, preferences, per-user protocols (vault rules, language, timezone)
+- **memory/MEMORY.md** — project context, active work, learnings
+
+Each fact lives in exactly one file. Before writing, check the other two and
+update in place if the fact already exists there. If a duplicate exists in
+MEMORY.md, remove it — USER.md and SOUL.md win.
+
 (Paths are shown in the context prefix each new session.)
