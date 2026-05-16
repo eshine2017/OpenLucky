@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 User=eshine
 WorkingDirectory=/home/eshine/github/openlucky
+# gemini CLI is a node script (#!/usr/bin/env node); systemd's minimal PATH
+# has no node, so include the nvm node bin dir here.
+Environment=PATH=/home/eshine/.nvm/versions/node/v24.15.0/bin:/home/eshine/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ExecStart=/home/eshine/github/openlucky/.venv/bin/python3 -m app.main
 Restart=on-failure
 RestartSec=5
