@@ -18,6 +18,7 @@ from typing import Any
 
 from app import formatter
 from app.agents.base import BaseAgent
+from app.agents.registry import AgentRegistry
 from app.bootstrap import BootstrapChecker, BootstrapState, BootstrapStatus, is_complete_signal
 from app.context_builder import ContextBuilder
 from app.models import ChatState, ChatStatus, Job, JobStatus, RunResult, SessionDecision
@@ -35,17 +36,19 @@ class Daemon:
     def __init__(
         self,
         db_module: Any,
-        agent: BaseAgent,
-        session_manager: SessionManager,
-        send_message_fn: Callable[[str, str], None],
-        jobs_dir: str,
+        agent: BaseAgent | None = None,
+        session_manager: SessionManager = None,  # type: ignore[assignment]
+        send_message_fn: Callable[[str, str], None] = None,  # type: ignore[assignment]
+        jobs_dir: str = "",
         default_cwd: str = "/tmp/openlucky_work",
         context_builder: ContextBuilder | None = None,
         bootstrap_checker: BootstrapChecker | None = None,
         cron_spec_path: str = "",
+        registry: AgentRegistry | None = None,
     ) -> None:
         self._db = db_module
         self._agent = agent
+        self._registry = registry
         self._session_manager = session_manager
         self._send = send_message_fn
         self._jobs_dir = jobs_dir
@@ -60,6 +63,12 @@ class Daemon:
 
         # Pending one-shot actions set by command handlers
         self.pending_actions: dict[str, str] = {}
+
+    def _resolve_agent(self, provider: str | None) -> BaseAgent:
+        """Return the right agent for *provider*, falling back gracefully."""
+        if self._registry is not None:
+            return self._registry.get(provider)
+        return self._agent  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Public entry point (called from the Telegram handler thread)
@@ -135,7 +144,7 @@ class Daemon:
         # an active session always resumes; no session always starts new.
         force_new = chat_state.force_new_next
         if force_new:
-            chat_state.force_new_next = False  # consume the flag
+            chat_state = replace(chat_state, force_new_next=False)
             self._db.upsert_chat(chat_state)
 
         decision_text = "" if image_paths else text
@@ -255,7 +264,8 @@ class Daemon:
             job = replace(job, status=JobStatus.running, started_at=datetime.now(UTC).isoformat())
             self._db.update_job(job)
 
-            result = self._agent.run(
+            agent = self._resolve_agent(chat_state.provider)
+            result = agent.run(
                 prompt=prompt,
                 cwd=cwd,
                 session_id=None,
@@ -679,7 +689,8 @@ class Daemon:
                 prompt = self._build_prompt(job.user_message, decision.mode, job.image_paths)
 
             # Invoke agent
-            result = self._agent.run(
+            agent = self._resolve_agent(chat_state.provider)
+            result = agent.run(
                 prompt=prompt,
                 cwd=cwd,
                 session_id=decision.session_id,

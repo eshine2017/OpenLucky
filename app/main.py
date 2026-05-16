@@ -25,6 +25,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters  # noqa: E4
 
 from app import config, db, image_store  # noqa: E402
 from app.agents.claude_code import ClaudeCodeAgent  # noqa: E402
+from app.agents.gemini_code import GeminiAgent  # noqa: E402
+from app.agents.registry import AgentRegistry  # noqa: E402
 from app.bootstrap import BootstrapChecker  # noqa: E402
 from app.command_router import CommandRouter  # noqa: E402
 from app.context_builder import ContextBuilder  # noqa: E402
@@ -105,6 +107,20 @@ def main() -> None:
         images_dir=settings.images_dir,
     )
 
+    gemini_agent = GeminiAgent(
+        gemini_bin=settings.gemini_bin,
+        work_dir=settings.work_dir,
+        gemini_model=settings.gemini_model,
+        workspace_dir=settings.workspace_dir,
+        second_brain_dir=settings.second_brain_dir,
+        images_dir=settings.images_dir,
+    )
+
+    registry = AgentRegistry(
+        agents={"claude": claude_agent, "gemini": gemini_agent},
+        default=settings.provider,
+    )
+
     session_manager = SessionManager(
         db=db,
         timeout_minutes=settings.session_timeout_minutes,
@@ -182,6 +198,7 @@ def main() -> None:
         context_builder=context_builder,
         bootstrap_checker=bootstrap_checker,
         cron_spec_path=cron_spec_path,
+        registry=registry,
     )
 
     command_router = CommandRouter(
@@ -191,6 +208,7 @@ def main() -> None:
         bootstrap_checker=bootstrap_checker,
         scheduler=scheduler,
         daemon=daemon,
+        registry=registry,
     )
 
     bot = TelegramBot(

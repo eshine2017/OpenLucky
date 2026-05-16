@@ -334,8 +334,8 @@ class TestCancel:
             return start + 10.0  # past the 5-second deadline
 
         with (
-            patch("app.agents.claude_code.time.monotonic", side_effect=_fast_monotonic),
-            patch("app.agents.claude_code.time.sleep"),
+            patch("app.agents.subprocess_agent.time.monotonic", side_effect=_fast_monotonic),
+            patch("app.agents.subprocess_agent.time.sleep"),
         ):
             runner.cancel("j-kill")
 

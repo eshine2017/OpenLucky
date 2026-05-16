@@ -10,3 +10,10 @@ data_dir: "data"
 # Leave empty to disable.
 second_brain_dir: ""
 
+# AI provider selection. Options: "claude" (default), "gemini".
+provider: "claude"
+
+# Gemini CLI configuration (only used when provider is "gemini" or !provider switches to it).
+gemini_bin: "gemini"   # use absolute path for systemd
+gemini_model: ""       # e.g. "gemini-2.0-flash"; empty = CLI default
+

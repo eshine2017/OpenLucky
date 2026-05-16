@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.agents.registry import AgentRegistry
 from app.bootstrap import BootstrapChecker
 from app.command_help import TOP_LEVEL_NAMES, render_help
 from app.context_builder import ContextBuilder
@@ -30,14 +31,16 @@ class CommandRouter:
     def __init__(
         self,
         db: Any,
-        agent: BaseAgent,
+        agent: BaseAgent | None = None,
         context_builder: ContextBuilder | None = None,
         bootstrap_checker: BootstrapChecker | None = None,
         scheduler: Any | None = None,
         daemon: Any | None = None,
+        registry: AgentRegistry | None = None,
     ) -> None:
         self._db = db
         self._agent = agent
+        self._registry = registry
         self._context_builder = context_builder
         self._bootstrap_checker = bootstrap_checker
         self._scheduler = scheduler
@@ -92,6 +95,8 @@ class CommandRouter:
             return self._handle_whoami()
         if cmd == "!memory":
             return self._handle_memory()
+        if cmd == "!provider":
+            return self._handle_provider(chat_id, arg)
         if cmd == "!schedule":
             return self._handle_schedule(chat_id, arg)
         if cmd == "!help":
@@ -133,7 +138,14 @@ class CommandRouter:
 
         logger.info("Canceling job %s for chat %s", active_job.job_id, chat_id)
 
-        self._agent.cancel(active_job.job_id)
+        if self._registry is not None:
+            chat_state = self._db.get_chat(chat_id)
+            provider = chat_state.provider if chat_state else None
+            self._registry.get(provider).cancel(active_job.job_id)
+        elif self._agent is not None:
+            self._agent.cancel(active_job.job_id)
+        else:
+            logger.error("!stop: no agent or registry configured")
 
         # Update job status
         active_job = replace(
@@ -236,6 +248,47 @@ class CommandRouter:
         if not content:
             return "(memory/MEMORY.md is empty or matches the default template)"
         return truncate_for_telegram(content)
+
+    def _handle_provider(self, chat_id: str, arg: str) -> str:
+        if self._registry is None:
+            return "Provider switching not configured."
+
+        state = self._db.get_chat(chat_id)
+        current = (state.provider if state else None) or self._registry.default
+        available = self._registry.available
+
+        target = arg.strip().lower()
+        if not target:
+            return (
+                f"Current provider: {current}\n"
+                f"Available: {', '.join(available)}\n"
+                "Usage: !provider <name>"
+            )
+
+        if target not in available:
+            return (
+                f"Unknown provider: {target!r}\n"
+                f"Available: {', '.join(available)}"
+            )
+
+        active_job = self._db.get_active_job(chat_id)
+        if active_job is not None:
+            return (
+                "A task is currently running. Stop it first with !stop before switching provider."
+            )
+
+        if state is None:
+            state = ChatState(telegram_chat_id=chat_id)
+
+        self._db.upsert_chat(
+            replace(
+                state,
+                provider=target,
+                active_session_id=None,
+                force_new_next=True,
+            )
+        )
+        return f"Provider switched to {target}. Next message starts a new session."
 
     def _handle_schedule(self, chat_id: str, arg: str) -> str:
         if self._scheduler is None:

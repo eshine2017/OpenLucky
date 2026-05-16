@@ -62,6 +62,8 @@ Claude Code CLI  →  summary sent back to Telegram
 | `scheduler.py` | Async cron loop; loads spec, computes next runs, calls `run_scheduled_job` |
 | `context_builder.py` | Builds system-prompt prefix from SOUL/USER/MEMORY files |
 | `agents/claude_code.py` | Spawns subprocess, cancels it, parses stream-json output |
+| `agents/gemini_code.py` | Wraps Gemini CLI subprocess; `--resume`/`--session-id` session management |
+| `agents/registry.py` | Maps provider name → agent instance; fallback to default |
 | `db.py` | SQLite init and CRUD |
 | `models.py` | Dataclasses: `Job`, `ChatState`, `RunResult` |
 | `config.py` | Loads settings.yaml; respects `CONFIG_FILE` env var |

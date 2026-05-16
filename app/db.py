@@ -116,6 +116,7 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str)
 def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after the initial schema without dropping existing data."""
     _ensure_column(conn, "chats", "bootstrap_session_id", "TEXT")
+    _ensure_column(conn, "chats", "provider", "TEXT")
     _ensure_column(conn, "jobs", "kind", "TEXT")
     _ensure_column(conn, "jobs", "image_paths", "TEXT")
 
@@ -134,6 +135,7 @@ def get_chat(chat_id: str) -> ChatState | None:
     if row is None:
         return None
 
+    keys = row.keys()
     return ChatState(
         telegram_chat_id=row["telegram_chat_id"],
         active_session_id=row["active_session_id"],
@@ -144,6 +146,7 @@ def get_chat(chat_id: str) -> ChatState | None:
         last_summary=row["last_summary"],
         force_new_next=bool(row["force_new_next"]),
         bootstrap_session_id=row["bootstrap_session_id"],
+        provider=row["provider"] if "provider" in keys else None,
     )
 
 
@@ -155,8 +158,8 @@ def upsert_chat(state: ChatState) -> None:
             INSERT INTO chats
                 (telegram_chat_id, active_session_id, active_task_name, cwd,
                  status, last_active_at, last_summary, force_new_next,
-                 bootstrap_session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bootstrap_session_id, provider)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_chat_id) DO UPDATE SET
                 active_session_id    = excluded.active_session_id,
                 active_task_name     = excluded.active_task_name,
@@ -165,7 +168,8 @@ def upsert_chat(state: ChatState) -> None:
                 last_active_at       = excluded.last_active_at,
                 last_summary         = excluded.last_summary,
                 force_new_next       = excluded.force_new_next,
-                bootstrap_session_id = excluded.bootstrap_session_id
+                bootstrap_session_id = excluded.bootstrap_session_id,
+                provider             = excluded.provider
             """,
             (
                 state.telegram_chat_id,
@@ -177,6 +181,7 @@ def upsert_chat(state: ChatState) -> None:
                 state.last_summary,
                 int(state.force_new_next),
                 state.bootstrap_session_id,
+                state.provider,
             ),
         )
         conn.commit()
@@ -201,6 +206,7 @@ def get_most_recent_chat() -> ChatState | None:
     if row is None:
         return None
 
+    keys = row.keys()
     return ChatState(
         telegram_chat_id=row["telegram_chat_id"],
         active_session_id=row["active_session_id"],
@@ -211,6 +217,7 @@ def get_most_recent_chat() -> ChatState | None:
         last_summary=row["last_summary"],
         force_new_next=bool(row["force_new_next"]),
         bootstrap_session_id=row["bootstrap_session_id"],
+        provider=row["provider"] if "provider" in keys else None,
     )
 
 

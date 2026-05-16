@@ -6,21 +6,17 @@ This module knows nothing about Telegram or the database.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
-import signal
-import subprocess
-import threading
-import time
 
+from app.agents.subprocess_agent import SubprocessAgent
 from app.models import RunResult
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeCodeAgent:
+class ClaudeCodeAgent(SubprocessAgent):
     """
     Runs Claude Code as a managed subprocess.
 
@@ -39,8 +35,8 @@ class ClaudeCodeAgent:
         second_brain_dir: str = "",
         images_dir: str = "",
     ) -> None:
+        super().__init__(work_dir)
         self.claude_bin = claude_bin
-        self.work_dir = work_dir
         self.workspace_dir = workspace_dir
         self.second_brain_dir = second_brain_dir
         self.images_dir = images_dir
@@ -49,9 +45,6 @@ class ClaudeCodeAgent:
                 "second_brain_dir %r does not exist; --add-dir will be skipped until it is created",
                 second_brain_dir,
             )
-        # job_id → Popen; guarded by _proc_lock
-        self._processes: dict[str, subprocess.Popen[str]] = {}
-        self._proc_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -65,57 +58,9 @@ class ClaudeCodeAgent:
         job_id: str | None = None,
         image_paths: list[str] | None = None,
     ) -> RunResult:
-        """
-        Run Claude Code with the given prompt.
-
-        Parameters
-        ----------
-        prompt:     The user message / instruction.
-        cwd:        Working directory for the subprocess.
-        session_id: If set, pass --resume <session_id>.
-        job_id:     Optional key used to track the process for cancellation.
-
-        Returns
-        -------
-        RunResult with parsed session_id, stdout, stderr, exit_code and summary.
-        """
         cmd = self._build_command(prompt, session_id, image_paths=image_paths)
-        effective_cwd = cwd if os.path.isdir(cwd) else self.work_dir
-        os.makedirs(effective_cwd, exist_ok=True)
-
-        logger.info(
-            "Spawning Claude Code: %s (cwd=%s, session=%s)",
-            " ".join(cmd),
-            effective_cwd,
-            session_id,
-        )
-
-        proc = subprocess.Popen(
-            cmd,
-            cwd=effective_cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        # Register process so it can be cancelled
-        _key = job_id or str(proc.pid)
-        with self._proc_lock:
-            self._processes[_key] = proc
-
-        try:
-            stdout_data, stderr_data = proc.communicate()
-        finally:
-            with self._proc_lock:
-                self._processes.pop(_key, None)
-
-        exit_code = proc.returncode
-        logger.info("Claude Code exited with code %d (job=%s)", exit_code, _key)
-
+        stdout_data, stderr_data, exit_code = self._spawn(cmd, cwd, job_id)
         parsed_session_id, summary = self._parse_stream_json(stdout_data)
-
         return RunResult(
             session_id=parsed_session_id or session_id or "",
             stdout=stdout_data,
@@ -123,35 +68,6 @@ class ClaudeCodeAgent:
             exit_code=exit_code,
             summary=summary,
         )
-
-    def cancel(self, job_id: str) -> None:
-        """
-        Send SIGTERM to the process registered under job_id.
-        If it does not exit within 5 seconds, send SIGKILL.
-        """
-        with self._proc_lock:
-            proc = self._processes.get(job_id)
-
-        if proc is None:
-            logger.warning("cancel(%s): no active process found", job_id)
-            return
-
-        logger.info("Sending SIGTERM to process %d (job=%s)", proc.pid, job_id)
-        try:
-            proc.send_signal(signal.SIGTERM)
-        except ProcessLookupError:
-            return
-
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                logger.info("Process %d terminated gracefully", proc.pid)
-                return
-            time.sleep(0.2)
-
-        logger.warning("Process %d did not exit; sending SIGKILL", proc.pid)
-        with contextlib.suppress(ProcessLookupError):
-            proc.send_signal(signal.SIGKILL)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -228,7 +144,4 @@ class ClaudeCodeAgent:
         else:
             summary = "(No summary available)"
 
-        if len(summary) > 3000:
-            summary = summary[:3000] + "\n… (truncated)"
-
-        return parsed_session_id, summary
+        return parsed_session_id, self._truncate(summary)

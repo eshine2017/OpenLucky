@@ -110,6 +110,35 @@ class TestHandleStop:
         mock_db.update_job.assert_called_once()
         mock_db.upsert_chat.assert_called_once()
 
+    def test_cancel_via_registry(self, mock_db) -> None:
+        from app.agents.registry import AgentRegistry
+        from unittest.mock import MagicMock
+
+        claude = MagicMock()
+        gemini = MagicMock()
+        registry = AgentRegistry({"claude": claude, "gemini": gemini}, default="claude")
+        r = CommandRouter(db=mock_db, registry=registry)
+
+        job = Job(job_id="j2-abcdef", telegram_chat_id="1", status=JobStatus.running)
+        mock_db.get_active_job.return_value = job
+        mock_db.get_chat.return_value = ChatState(
+            telegram_chat_id="1", status=ChatStatus.running, provider="gemini"
+        )
+
+        result = r.handle("1", "!stop")
+        assert "Canceled" in result
+        gemini.cancel.assert_called_once_with("j2-abcdef")
+        claude.cancel.assert_not_called()
+
+    def test_stop_no_agent_no_registry_logs_error(self, mock_db) -> None:
+        r = CommandRouter(db=mock_db)
+        job = Job(job_id="j3-abcdef", telegram_chat_id="1", status=JobStatus.running)
+        mock_db.get_active_job.return_value = job
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", status=ChatStatus.running)
+        # Should not raise; logs an error instead
+        result = r.handle("1", "!stop")
+        assert "Canceled" in result
+
 
 class TestHandleNew:
     def test_sets_force_new(self, router, mock_db) -> None:
@@ -522,6 +551,94 @@ class TestHelpCommand:
         session_pos = result.index("[Session]")
         schedule_pos = result.index("[Schedule]")
         assert info_pos < session_pos < schedule_pos
+
+
+class TestProviderCommand:
+    @pytest.fixture()
+    def mock_registry(self):
+        from app.agents.registry import AgentRegistry
+
+        claude = MagicMock()
+        claude.name = "claude"
+        gemini = MagicMock()
+        gemini.name = "gemini"
+        return AgentRegistry({"claude": claude, "gemini": gemini}, default="claude")
+
+    @pytest.fixture()
+    def router_with_registry(self, mock_db, mock_registry):
+        from app.command_router import CommandRouter
+
+        return CommandRouter(db=mock_db, registry=mock_registry)
+
+    def test_provider_no_registry_returns_not_configured(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = None
+        result = router.handle("1", "!provider")
+        assert "not configured" in result.lower()
+
+    def test_provider_shows_current_when_no_session(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_chat.return_value = None
+        result = router_with_registry.handle("1", "!provider")
+        assert "claude" in result
+        assert "gemini" in result
+
+    def test_provider_shows_current_provider_from_db(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_chat.return_value = ChatState(
+            telegram_chat_id="1", provider="gemini"
+        )
+        result = router_with_registry.handle("1", "!provider")
+        assert "gemini" in result
+
+    def test_provider_switch_updates_db_and_clears_session(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_chat.return_value = ChatState(
+            telegram_chat_id="1", provider="claude", active_session_id="s-abc"
+        )
+        mock_db.get_active_job.return_value = None
+        result = router_with_registry.handle("1", "!provider gemini")
+        assert "gemini" in result.lower()
+        mock_db.upsert_chat.assert_called_once()
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.provider == "gemini"
+        assert saved.active_session_id is None
+        assert saved.force_new_next is True
+
+    def test_provider_refuses_while_job_running(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_active_job.return_value = Job(
+            job_id="j1", telegram_chat_id="1", status=JobStatus.running
+        )
+        result = router_with_registry.handle("1", "!provider gemini")
+        assert "running" in result.lower()
+        mock_db.upsert_chat.assert_not_called()
+
+    def test_provider_unknown_provider_name_shows_error(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_active_job.return_value = None
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        result = router_with_registry.handle("1", "!provider grok")
+        assert "grok" in result.lower()
+
+    def test_provider_same_provider_no_session_clear(
+        self, router_with_registry, mock_db
+    ) -> None:
+        mock_db.get_active_job.return_value = None
+        mock_db.get_chat.return_value = ChatState(
+            telegram_chat_id="1", provider="claude", active_session_id="s-xyz"
+        )
+        result = router_with_registry.handle("1", "!provider claude")
+        assert "claude" in result.lower()
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.provider == "claude"
+
+    def test_provider_is_recognised_as_command(self, router_with_registry) -> None:
+        assert router_with_registry.is_command("!provider") is True
 
 
 class TestCommandSpecDriftGuard:

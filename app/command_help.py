@@ -6,8 +6,13 @@ from dataclasses import dataclass
 
 # Characters reserved for the usage/command column before summary aligns
 _USAGE_COL_WIDTH = 28
-_CATEGORY_ORDER = ("info", "session", "schedule")
-_CATEGORY_LABELS = {"info": "Info", "session": "Session", "schedule": "Schedule"}
+_CATEGORY_ORDER = ("info", "session", "provider", "schedule")
+_CATEGORY_LABELS = {
+    "info": "Info",
+    "session": "Session",
+    "provider": "Provider",
+    "schedule": "Schedule",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,13 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("!stop", "!stop", "Cancel the currently running task", "session"),
     CommandSpec("!cwd", "!cwd <path>", "Switch working directory (forces new session)", "session"),
     CommandSpec("!task", "!task <name>", "Set active task name", "session"),
+    # Provider
+    CommandSpec(
+        "!provider",
+        "!provider [name]",
+        "View or switch AI provider (claude/gemini); starts new session",
+        "provider",
+    ),
     # Schedule — parent entry used only for routing; sub-commands shown in help
     CommandSpec("!schedule", "!schedule <subcmd>", "Manage cron jobs", "schedule"),
 )

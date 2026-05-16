@@ -46,6 +46,12 @@ class Settings:
     # second_brain_dir: optional path to a notes/knowledge directory.
     # When set, Claude can read and write files here.
     second_brain_dir: str = ""
+    # provider: default AI provider ("claude" or "gemini").
+    provider: str = "claude"
+    # gemini_bin: absolute path to the gemini CLI binary.
+    gemini_bin: str = "gemini"
+    # gemini_model: Gemini model name to pass as -m flag. Empty = CLI default.
+    gemini_model: str = ""
 
     @property
     def _effective_data_dir(self) -> str:
@@ -99,6 +105,9 @@ def load() -> Settings:
         log_level=raw.get("log_level", "INFO"),
         data_dir=raw.get("data_dir", ""),
         second_brain_dir=raw.get("second_brain_dir", ""),
+        provider=raw.get("provider", "claude"),
+        gemini_bin=raw.get("gemini_bin", "gemini"),
+        gemini_model=raw.get("gemini_model", ""),
     )
 
     logger.debug("Settings loaded from %s", config_path)
