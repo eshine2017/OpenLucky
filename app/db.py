@@ -117,6 +117,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after the initial schema without dropping existing data."""
     _ensure_column(conn, "chats", "bootstrap_session_id", "TEXT")
     _ensure_column(conn, "chats", "provider", "TEXT")
+    _ensure_column(conn, "chats", "model", "TEXT")
     _ensure_column(conn, "jobs", "kind", "TEXT")
     _ensure_column(conn, "jobs", "image_paths", "TEXT")
 
@@ -147,6 +148,7 @@ def get_chat(chat_id: str) -> ChatState | None:
         force_new_next=bool(row["force_new_next"]),
         bootstrap_session_id=row["bootstrap_session_id"],
         provider=row["provider"] if "provider" in keys else None,
+        model=row["model"] if "model" in keys else None,
     )
 
 
@@ -158,8 +160,8 @@ def upsert_chat(state: ChatState) -> None:
             INSERT INTO chats
                 (telegram_chat_id, active_session_id, active_task_name, cwd,
                  status, last_active_at, last_summary, force_new_next,
-                 bootstrap_session_id, provider)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 bootstrap_session_id, provider, model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_chat_id) DO UPDATE SET
                 active_session_id    = excluded.active_session_id,
                 active_task_name     = excluded.active_task_name,
@@ -169,7 +171,8 @@ def upsert_chat(state: ChatState) -> None:
                 last_summary         = excluded.last_summary,
                 force_new_next       = excluded.force_new_next,
                 bootstrap_session_id = excluded.bootstrap_session_id,
-                provider             = excluded.provider
+                provider             = excluded.provider,
+                model                = excluded.model
             """,
             (
                 state.telegram_chat_id,
@@ -182,6 +185,7 @@ def upsert_chat(state: ChatState) -> None:
                 int(state.force_new_next),
                 state.bootstrap_session_id,
                 state.provider,
+                state.model,
             ),
         )
         conn.commit()
@@ -218,6 +222,7 @@ def get_most_recent_chat() -> ChatState | None:
         force_new_next=bool(row["force_new_next"]),
         bootstrap_session_id=row["bootstrap_session_id"],
         provider=row["provider"] if "provider" in keys else None,
+        model=row["model"] if "model" in keys else None,
     )
 
 

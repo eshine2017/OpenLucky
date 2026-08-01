@@ -39,6 +39,7 @@ def _make_job_spec(
     prompt: str = "hello",
     enabled: bool = True,
     name: str = "Test",
+    model: str = "",
 ) -> dict:
     return {
         "id": job_id,
@@ -47,6 +48,7 @@ def _make_job_spec(
         "cron_expr": cron_expr,
         "tz": tz,
         "prompt": prompt,
+        "model": model,
     }
 
 
@@ -199,6 +201,42 @@ class TestStart:
         assert jobs[0].state.next_run_at_ms > _NOW_MS
         on_job.assert_not_awaited()
 
+    async def test_model_field_loaded_from_spec(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1", model="haiku")])
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+        jobs = s.list_jobs()
+        assert jobs[0].model == "haiku"
+
+    async def test_model_field_defaults_to_empty_string(self, tmp_path) -> None:
+        spec_path = str(tmp_path / "cron.json")
+        _write_spec(spec_path, [_make_job_spec("j1")])
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+        jobs = s.list_jobs()
+        assert jobs[0].model == ""
+
+    async def test_model_key_missing_entirely_still_loads(self, tmp_path) -> None:
+        """Existing cron.json files written before !model shipped lack the key."""
+        spec_path = str(tmp_path / "cron.json")
+        legacy_entry = {
+            "id": "j1",
+            "name": "Test",
+            "enabled": True,
+            "cron_expr": "0 8 * * *",
+            "tz": "UTC",
+            "prompt": "hello",
+        }
+        _write_spec(spec_path, [legacy_entry])
+        s = _make_scheduler(tmp_path)
+        s._arm_timer = MagicMock()
+        await s.start()
+        jobs = s.list_jobs()
+        assert jobs[0].model == ""
+
     async def test_start_with_no_spec_file(self, tmp_path) -> None:
         """Scheduler starts cleanly when spec file doesn't exist."""
         s = _make_scheduler(tmp_path)
@@ -344,9 +382,7 @@ class TestOnTimer:
         await s.start()
 
         records = [CronRunRecord(run_at_ms=_NOW_MS - i * 1000, status="ok") for i in range(20)]
-        s._state["j1"] = CronJobState(
-            next_run_at_ms=_NOW_MS - 1, run_history=records
-        )
+        s._state["j1"] = CronJobState(next_run_at_ms=_NOW_MS - 1, run_history=records)
 
         await s._on_timer()
 
@@ -386,6 +422,7 @@ class TestOnTimer:
 
         # Write a new spec with an additional job
         import time
+
         time.sleep(0.01)  # ensure mtime differs
         _write_spec(spec_path, [_make_job_spec("j1"), _make_job_spec("j2")])
         # Manually bump the mtime to guarantee the check fires

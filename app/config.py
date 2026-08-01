@@ -52,6 +52,9 @@ class Settings:
     gemini_bin: str = "gemini"
     # gemini_model: Gemini model name to pass as -m flag. Empty = CLI default.
     gemini_model: str = ""
+    # claude_model: default Claude model to pass as --model flag. Empty = CLI default.
+    # Overridden per-chat by !model.
+    claude_model: str = ""
 
     @property
     def _effective_data_dir(self) -> str:
@@ -108,6 +111,7 @@ def load() -> Settings:
         provider=raw.get("provider", "claude"),
         gemini_bin=raw.get("gemini_bin", "gemini"),
         gemini_model=raw.get("gemini_model", ""),
+        claude_model=raw.get("claude_model", ""),
     )
 
     logger.debug("Settings loaded from %s", config_path)

@@ -259,3 +259,58 @@ class TestRunScheduledJobHappy:
             time.sleep(0.05)
 
         assert "42" not in daemon.running_locks
+
+
+# ---------------------------------------------------------------------------
+# run_scheduled_job — model selection
+# ---------------------------------------------------------------------------
+
+
+class TestRunScheduledJobModel:
+    def test_falls_back_to_chat_state_model_when_no_override(self, tmp_path) -> None:
+        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
+        mock_db.get_most_recent_chat.return_value = replace(_idle_chat(), model="sonnet")
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.run_scheduled_job(prompt="Good morning", label="morning-digest")
+
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            if mock_agent.run.called:
+                break
+            time.sleep(0.05)
+
+        call_kwargs = mock_agent.run.call_args[1]
+        assert call_kwargs["model"] == "sonnet"
+
+    def test_per_job_model_overrides_chat_state_model(self, tmp_path) -> None:
+        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
+        mock_db.get_most_recent_chat.return_value = replace(_idle_chat(), model="sonnet")
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.run_scheduled_job(prompt="Good morning", label="morning-digest", model="haiku")
+
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            if mock_agent.run.called:
+                break
+            time.sleep(0.05)
+
+        call_kwargs = mock_agent.run.call_args[1]
+        assert call_kwargs["model"] == "haiku"
+
+    def test_no_model_anywhere_passes_none(self, tmp_path) -> None:
+        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
+        mock_db.get_most_recent_chat.return_value = _idle_chat()
+        mock_agent.run.return_value = _make_run_result()
+
+        daemon.run_scheduled_job(prompt="Good morning", label="morning-digest")
+
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            if mock_agent.run.called:
+                break
+            time.sleep(0.05)
+
+        call_kwargs = mock_agent.run.call_args[1]
+        assert not call_kwargs.get("model")

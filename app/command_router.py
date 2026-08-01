@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 # Derived from the single source of truth in command_help.py
 _COMMANDS: frozenset[str] = TOP_LEVEL_NAMES
+
+# "/model" mirrors Claude Code's own slash command so muscle memory still works
+# when talking to the bot. Maps recognised slash form -> canonical !command.
+_SLASH_ALIASES: dict[str, str] = {"/model": "!model"}
+
+_MODEL_ALIASES: tuple[str, ...] = ("fable", "opus", "sonnet", "haiku")
+_FULL_MODEL_RE = re.compile(r"^(claude|gemini)-[a-z0-9.\-]+$")
 
 
 class CommandRouter:
@@ -51,15 +59,24 @@ class CommandRouter:
     # ------------------------------------------------------------------
 
     def is_command(self, text: str) -> bool:
-        """Return True when text starts with a known !command."""
-        if not text.strip().startswith("!"):
+        """Return True when text starts with a known !command (or a slash alias)."""
+        stripped = text.strip()
+        if not stripped:
             return False
-        first_word = text.strip().split()[0].lower()
+        first_word = stripped.split()[0].lower()
+        if first_word in _SLASH_ALIASES:
+            return True
+        if not stripped.startswith("!"):
+            return False
         return first_word in _COMMANDS
 
     def looks_like_command(self, text: str) -> bool:
-        """Return True when text starts with '!' (known or unknown command)."""
-        return text.strip().startswith("!")
+        """Return True when text starts with '!' (known or unknown), or a slash alias."""
+        stripped = text.strip()
+        if stripped.startswith("!"):
+            return True
+        first_word = stripped.split()[0].lower() if stripped else ""
+        return first_word in _SLASH_ALIASES
 
     def handle(self, chat_id: str, text: str) -> str:
         """
@@ -72,7 +89,7 @@ class CommandRouter:
         """
         parts = text.strip().split(maxsplit=1)
         raw_cmd = parts[0]
-        cmd = raw_cmd.lower()
+        cmd = _SLASH_ALIASES.get(raw_cmd.lower(), raw_cmd.lower())
         arg = parts[1] if len(parts) > 1 else ""
 
         logger.info("Command %r from chat %s (arg=%r)", cmd, chat_id, arg)
@@ -97,6 +114,8 @@ class CommandRouter:
             return self._handle_memory()
         if cmd == "!provider":
             return self._handle_provider(chat_id, arg)
+        if cmd == "!model":
+            return self._handle_model(chat_id, arg)
         if cmd == "!schedule":
             return self._handle_schedule(chat_id, arg)
         if cmd == "!help":
@@ -118,6 +137,7 @@ class CommandRouter:
             f"Task: {state.active_task_name or '(none)'}",
             f"Dir: {state.cwd or '(not set)'}",
             f"Session: {state.active_session_id or '(none)'}",
+            f"Model: {state.model or '(provider default)'}",
             f"Last active: {state.last_active_at or '(never)'}",
         ]
 
@@ -266,10 +286,7 @@ class CommandRouter:
             )
 
         if target not in available:
-            return (
-                f"Unknown provider: {target!r}\n"
-                f"Available: {', '.join(available)}"
-            )
+            return f"Unknown provider: {target!r}\nAvailable: {', '.join(available)}"
 
         active_job = self._db.get_active_job(chat_id)
         if active_job is not None:
@@ -284,11 +301,39 @@ class CommandRouter:
             replace(
                 state,
                 provider=target,
+                model=None,
                 active_session_id=None,
                 force_new_next=True,
             )
         )
         return f"Provider switched to {target}. Next message starts a new session."
+
+    def _handle_model(self, chat_id: str, arg: str) -> str:
+        state = self._db.get_chat(chat_id)
+        current = (state.model if state else None) or "(provider default)"
+
+        target = arg.strip().lower()
+        if not target:
+            return (
+                f"Current model: {current}\n"
+                f"Aliases: {', '.join(_MODEL_ALIASES)}\n"
+                "Or a full ID (e.g. claude-opus-5, gemini-2.5-pro)\n"
+                "Usage: !model <name>"
+            )
+
+        if target not in _MODEL_ALIASES and not _FULL_MODEL_RE.match(target):
+            return (
+                f"Unknown model: {target!r}\n"
+                f"Aliases: {', '.join(_MODEL_ALIASES)}, or a full claude-*/gemini-* ID"
+            )
+
+        if state is None:
+            state = ChatState(telegram_chat_id=chat_id)
+
+        # No active-job guard and no session reset: --model overrides mid-session
+        # on --resume, so switching model does not require starting a new session.
+        self._db.upsert_chat(replace(state, model=target))
+        return f"Model set to {target}. Takes effect on your next message."
 
     def _handle_schedule(self, chat_id: str, arg: str) -> str:
         if self._scheduler is None:
@@ -324,7 +369,7 @@ class CommandRouter:
         self._daemon.pending_actions[chat_id] = "schedule_add"
         return (
             "What do you want to schedule? Describe it in plain English\n"
-            "(e.g. \"daily 8am morning digest of my todos and projects\")."
+            '(e.g. "daily 8am morning digest of my todos and projects").'
         )
 
     def _handle_schedule_update_cmd(self, chat_id: str, job_id: str) -> str:
@@ -338,7 +383,7 @@ class CommandRouter:
         self._daemon.pending_actions[chat_id] = f"schedule_update:{job_id}"
         return (
             f"What do you want to change about '{job_id}'?\n"
-            "(e.g. \"move to 9am\", \"change prompt to ...\", \"disable it\")"
+            '(e.g. "move to 9am", "change prompt to ...", "disable it")'
         )
 
     def _handle_schedule_run(self, job_id: str) -> str:

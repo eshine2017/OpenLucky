@@ -35,6 +35,7 @@ class ChatState:
     force_new_next: bool = False
     bootstrap_session_id: str | None = None
     provider: str | None = None
+    model: str | None = None
 
 
 @dataclass

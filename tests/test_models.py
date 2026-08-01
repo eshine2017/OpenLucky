@@ -37,6 +37,7 @@ class TestChatState:
         assert cs.last_active_at is None
         assert cs.last_summary is None
         assert cs.force_new_next is False
+        assert cs.model is None
 
     def test_custom_values(self) -> None:
         cs = ChatState(
@@ -44,10 +45,12 @@ class TestChatState:
             active_session_id="sess-1",
             status=ChatStatus.running,
             force_new_next=True,
+            model="opus",
         )
         assert cs.active_session_id == "sess-1"
         assert cs.status == ChatStatus.running
         assert cs.force_new_next is True
+        assert cs.model == "opus"
 
 
 class TestJob:

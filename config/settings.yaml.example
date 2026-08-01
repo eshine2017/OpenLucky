@@ -13,6 +13,11 @@ second_brain_dir: ""
 # AI provider selection. Options: "claude" (default), "gemini".
 provider: "claude"
 
+# Default Claude model. Options: alias ("opus", "sonnet", "haiku", "fable") or a
+# full model ID (e.g. "claude-opus-5"); empty = CLI default. Overridden per-chat
+# by !model, and per-job by cron.json's "model" field.
+claude_model: ""
+
 # Gemini CLI configuration (only used when provider is "gemini" or !provider switches to it).
 gemini_bin: "gemini"   # use absolute path for systemd
 gemini_model: ""       # e.g. "gemini-2.0-flash"; empty = CLI default

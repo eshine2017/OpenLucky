@@ -88,6 +88,42 @@ class TestBuildCommand:
         assert "--resume" not in cmd
 
 
+class TestBuildCommandWithModel:
+    def test_no_model_flag_when_not_configured(self) -> None:
+        runner = _make_runner()
+        cmd = runner._build_command("hi", session_id=None)
+        assert "--model" not in cmd
+
+    def test_default_model_from_ctor_used(self) -> None:
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", default_model="opus")
+        cmd = runner._build_command("hi", session_id=None)
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "opus"
+
+    def test_per_call_model_overrides_default(self) -> None:
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir="/tmp", default_model="opus")
+        cmd = runner._build_command("hi", session_id=None, model="sonnet")
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "sonnet"
+        assert cmd.count("--model") == 1
+
+    def test_per_call_model_without_default(self) -> None:
+        runner = _make_runner()
+        cmd = runner._build_command("hi", session_id=None, model="haiku")
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "haiku"
+
+    def test_model_works_with_resume(self) -> None:
+        runner = _make_runner()
+        cmd = runner._build_command("hi", session_id="sess-1", model="opus")
+        assert "--model" in cmd
+        assert "--resume" in cmd
+        assert cmd[cmd.index("--resume") + 1] == "sess-1"
+
+
 class TestParseStreamJson:
     def test_valid_result_event(self) -> None:
         runner = _make_runner()
@@ -266,6 +302,30 @@ class TestRun:
 
         # After run completes, process should be deregistered
         assert "j-reg" not in runner._processes
+
+    @patch("subprocess.Popen")
+    def test_run_passes_model_to_command(self, mock_popen, tmp_path):
+        mock_popen.return_value = _make_popen_mock()
+
+        runner = ClaudeCodeAgent(claude_bin="claude", work_dir=str(tmp_path))
+        runner.run(prompt="hi", cwd=str(tmp_path), session_id=None, job_id="j-model", model="opus")
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "opus"
+
+    @patch("subprocess.Popen")
+    def test_run_uses_default_model_when_not_passed(self, mock_popen, tmp_path):
+        mock_popen.return_value = _make_popen_mock()
+
+        runner = ClaudeCodeAgent(
+            claude_bin="claude", work_dir=str(tmp_path), default_model="sonnet"
+        )
+        runner.run(prompt="hi", cwd=str(tmp_path), session_id=None, job_id="j-def")
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
 
     @patch("subprocess.Popen")
     def test_run_nonzero_exit_code_propagated(self, mock_popen, tmp_path):

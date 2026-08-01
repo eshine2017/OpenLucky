@@ -105,6 +105,7 @@ def main() -> None:
         workspace_dir=settings.workspace_dir,
         second_brain_dir=settings.second_brain_dir,
         images_dir=settings.images_dir,
+        default_model=settings.claude_model,
     )
 
     gemini_agent = GeminiAgent(
@@ -157,7 +158,7 @@ def main() -> None:
     cron_state_path = os.path.join(settings._effective_data_dir, "cron-state.json")
 
     async def _scheduler_callback(job: CronJob) -> None:
-        result = daemon.run_scheduled_job(prompt=job.prompt, label=job.id)
+        result = daemon.run_scheduled_job(prompt=job.prompt, label=job.id, model=job.model)
         logger.info("Scheduled job %r dispatch result: %s", job.id, result)
 
     scheduler = Scheduler(

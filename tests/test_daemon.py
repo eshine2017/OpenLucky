@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from app.daemon import Daemon
@@ -207,6 +208,18 @@ class TestRunJobSuccess:
         assert call_kw["prompt"] == "do the thing"
         assert call_kw["cwd"] == "/tmp"
         assert call_kw["session_id"] == "session-abc"
+
+    def test_agent_run_called_with_chat_state_model(self, tmp_path):
+        daemon, mock_db, mock_agent, _, _ = _make_daemon(tmp_path)
+        mock_agent.run.return_value = _make_run_result()
+        mock_db.get_chat.return_value = replace(_default_chat_state(), model="opus")
+        daemon._session_manager.decide.return_value = _default_decision()
+
+        daemon.on_message("42", "do the thing")
+        time.sleep(0.3)
+
+        call_kw = mock_agent.run.call_args[1]
+        assert call_kw["model"] == "opus"
 
     def test_sends_start_and_running_messages(self, tmp_path):
         daemon, mock_db, mock_agent, _, mock_send = _make_daemon(tmp_path)
@@ -587,6 +600,16 @@ class TestScheduleUpdateRouting:
         result = daemon._build_schedule_update_prompt("morning", current, "move to 9am")
         assert "morning" in result
         assert "0 8 * * *" in result
+
+    def test_build_schedule_add_prompt_documents_model_field(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_schedule_add_prompt("daily digest at 8am")
+        assert "model" in result.lower()
+
+    def test_build_schedule_update_prompt_documents_model_field(self, tmp_path):
+        daemon, _, _, _, _ = _make_daemon(tmp_path)
+        result = daemon._build_schedule_update_prompt("morning", "{}", "move to 9am")
+        assert "model" in result.lower()
         assert "move to 9am" in result
 
     def test_schedule_update_no_cron_spec_path_still_launches_job(self, tmp_path):

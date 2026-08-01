@@ -34,6 +34,7 @@ class TestIsCommand:
         assert router.is_command("!reset") is True
         assert router.is_command("!cwd /tmp") is True
         assert router.is_command("!task build") is True
+        assert router.is_command("!model") is True
 
     def test_unknown_command(self, router) -> None:
         assert router.is_command("!unknown") is False
@@ -41,6 +42,11 @@ class TestIsCommand:
     def test_old_slash_prefix_not_recognised(self, router) -> None:
         assert router.is_command("/status") is False
         assert router.is_command("/stop") is False
+
+    def test_slash_model_alias_recognised(self, router) -> None:
+        assert router.is_command("/model") is True
+        assert router.is_command("/model sonnet") is True
+        assert router.is_command("/MODEL sonnet") is True
 
     def test_not_a_command(self, router) -> None:
         assert router.is_command("hello") is False
@@ -60,6 +66,9 @@ class TestLooksLikeCommand:
 
     def test_old_slash_prefix(self, router) -> None:
         assert router.looks_like_command("/status") is False
+
+    def test_slash_model_alias(self, router) -> None:
+        assert router.looks_like_command("/model sonnet") is True
 
     def test_plain_message(self, router) -> None:
         assert router.looks_like_command("hello") is False
@@ -92,6 +101,11 @@ class TestHandleStatus:
         assert "/tmp" in result
         assert "s1" in result
 
+    def test_shows_model_when_set(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", model="opus")
+        result = router.handle("1", "!status")
+        assert "opus" in result
+
 
 class TestHandleStop:
     def test_no_active_job(self, router, mock_db) -> None:
@@ -111,8 +125,9 @@ class TestHandleStop:
         mock_db.upsert_chat.assert_called_once()
 
     def test_cancel_via_registry(self, mock_db) -> None:
-        from app.agents.registry import AgentRegistry
         from unittest.mock import MagicMock
+
+        from app.agents.registry import AgentRegistry
 
         claude = MagicMock()
         gemini = MagicMock()
@@ -209,8 +224,19 @@ class TestHandleTask:
 class TestUnknownCommand:
     def test_unknown_bang_command_returns_help(self, router) -> None:
         result = router.handle("1", "!nope")
-        for name in ["!status", "!stop", "!new", "!reset", "!cwd", "!task",
-                     "!soul", "!whoami", "!memory", "!help", "!schedule"]:
+        for name in [
+            "!status",
+            "!stop",
+            "!new",
+            "!reset",
+            "!cwd",
+            "!task",
+            "!soul",
+            "!whoami",
+            "!memory",
+            "!help",
+            "!schedule",
+        ]:
             assert name in result, f"Expected {name} in unknown-command help"
 
     def test_unknown_command_prefixed_with_typo(self, router) -> None:
@@ -394,9 +420,7 @@ class TestScheduleCommand:
         assert "Usage" in result
         assert "update" in result
 
-    def test_schedule_update_unknown_id_returns_not_found(
-        self, mock_db, mock_claude_agent
-    ) -> None:
+    def test_schedule_update_unknown_id_returns_not_found(self, mock_db, mock_claude_agent) -> None:
         from app.scheduler import CronJob, CronJobState
 
         mock_scheduler = MagicMock()
@@ -509,14 +533,29 @@ class TestHelpCommand:
 
     def test_help_contains_all_top_level_commands(self, router) -> None:
         result = router.handle("1", "!help")
-        for name in ["!status", "!soul", "!whoami", "!memory", "!help",
-                     "!new", "!reset", "!stop", "!cwd", "!task"]:
+        for name in [
+            "!status",
+            "!soul",
+            "!whoami",
+            "!memory",
+            "!help",
+            "!new",
+            "!reset",
+            "!stop",
+            "!cwd",
+            "!task",
+        ]:
             assert name in result, f"Expected {name} in help"
 
     def test_help_contains_schedule_subcommands(self, router) -> None:
         result = router.handle("1", "!help")
-        for sub in ["!schedule list", "!schedule add", "!schedule run",
-                    "!schedule remove", "!schedule update"]:
+        for sub in [
+            "!schedule list",
+            "!schedule add",
+            "!schedule run",
+            "!schedule remove",
+            "!schedule update",
+        ]:
             assert sub in result, f"Expected {sub!r} in help"
 
     def test_help_contains_usage_for_arg_commands(self, router) -> None:
@@ -575,20 +614,14 @@ class TestProviderCommand:
         result = router.handle("1", "!provider")
         assert "not configured" in result.lower()
 
-    def test_provider_shows_current_when_no_session(
-        self, router_with_registry, mock_db
-    ) -> None:
+    def test_provider_shows_current_when_no_session(self, router_with_registry, mock_db) -> None:
         mock_db.get_chat.return_value = None
         result = router_with_registry.handle("1", "!provider")
         assert "claude" in result
         assert "gemini" in result
 
-    def test_provider_shows_current_provider_from_db(
-        self, router_with_registry, mock_db
-    ) -> None:
-        mock_db.get_chat.return_value = ChatState(
-            telegram_chat_id="1", provider="gemini"
-        )
+    def test_provider_shows_current_provider_from_db(self, router_with_registry, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", provider="gemini")
         result = router_with_registry.handle("1", "!provider")
         assert "gemini" in result
 
@@ -607,9 +640,16 @@ class TestProviderCommand:
         assert saved.active_session_id is None
         assert saved.force_new_next is True
 
-    def test_provider_refuses_while_job_running(
-        self, router_with_registry, mock_db
-    ) -> None:
+    def test_provider_switch_clears_model(self, router_with_registry, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(
+            telegram_chat_id="1", provider="claude", model="opus"
+        )
+        mock_db.get_active_job.return_value = None
+        router_with_registry.handle("1", "!provider gemini")
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.model is None
+
+    def test_provider_refuses_while_job_running(self, router_with_registry, mock_db) -> None:
         mock_db.get_active_job.return_value = Job(
             job_id="j1", telegram_chat_id="1", status=JobStatus.running
         )
@@ -625,9 +665,7 @@ class TestProviderCommand:
         result = router_with_registry.handle("1", "!provider grok")
         assert "grok" in result.lower()
 
-    def test_provider_same_provider_no_session_clear(
-        self, router_with_registry, mock_db
-    ) -> None:
+    def test_provider_same_provider_no_session_clear(self, router_with_registry, mock_db) -> None:
         mock_db.get_active_job.return_value = None
         mock_db.get_chat.return_value = ChatState(
             telegram_chat_id="1", provider="claude", active_session_id="s-xyz"
@@ -639,6 +677,82 @@ class TestProviderCommand:
 
     def test_provider_is_recognised_as_command(self, router_with_registry) -> None:
         assert router_with_registry.is_command("!provider") is True
+
+
+class TestModelCommand:
+    def test_shows_current_when_no_session(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = None
+        result = router.handle("1", "!model")
+        assert "provider default" in result.lower()
+        assert "opus" in result
+        assert "sonnet" in result
+
+    def test_shows_current_model_from_db(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", model="opus")
+        result = router.handle("1", "!model")
+        assert "opus" in result
+
+    def test_switch_to_alias_updates_db(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        result = router.handle("1", "!model sonnet")
+        assert "sonnet" in result.lower()
+        mock_db.upsert_chat.assert_called_once()
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.model == "sonnet"
+
+    def test_switch_does_not_touch_session(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", active_session_id="s-abc")
+        router.handle("1", "!model opus")
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.active_session_id == "s-abc"
+        assert saved.force_new_next is False
+
+    def test_switch_does_not_check_active_job(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        router.handle("1", "!model opus")
+        mock_db.get_active_job.assert_not_called()
+
+    def test_full_model_id_accepted(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        result = router.handle("1", "!model claude-opus-5")
+        assert "claude-opus-5" in result
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.model == "claude-opus-5"
+
+    def test_gemini_full_model_id_accepted(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        router.handle("1", "!model gemini-2.5-pro")
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.model == "gemini-2.5-pro"
+
+    def test_junk_alias_rejected(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        result = router.handle("1", "!model bogusmodel")
+        assert "unknown" in result.lower() or "bogusmodel" in result.lower()
+        mock_db.upsert_chat.assert_not_called()
+
+    def test_creates_chat_state_when_none(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = None
+        router.handle("1", "!model opus")
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.telegram_chat_id == "1"
+        assert saved.model == "opus"
+
+    def test_is_recognised_as_command(self, router) -> None:
+        assert router.is_command("!model") is True
+
+    def test_slash_alias_dispatches_same_handler(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1")
+        result = router.handle("1", "/model sonnet")
+        assert "sonnet" in result.lower()
+        saved = mock_db.upsert_chat.call_args[0][0]
+        assert saved.model == "sonnet"
+
+    def test_slash_alias_no_arg_shows_current(self, router, mock_db) -> None:
+        mock_db.get_chat.return_value = ChatState(telegram_chat_id="1", model="haiku")
+        result = router.handle("1", "/model")
+        assert "haiku" in result
+        mock_db.upsert_chat.assert_not_called()
 
 
 class TestCommandSpecDriftGuard:

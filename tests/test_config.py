@@ -69,6 +69,17 @@ class TestLoad:
         assert settings.log_level == "INFO"
         assert settings.data_dir == ""
         assert settings.second_brain_dir == ""
+        assert settings.claude_model == ""
+
+    def test_claude_model_parses_from_yaml(self, tmp_path, monkeypatch):
+        cfg = tmp_path / "settings.yaml"
+        cfg.write_text(
+            "telegram_bot_token: tok\nclaude_model: opus\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        settings = config.load()
+        assert settings.claude_model == "opus"
 
     def test_second_brain_dir_parses_from_yaml(self, tmp_path, monkeypatch):
         cfg = tmp_path / "settings.yaml"

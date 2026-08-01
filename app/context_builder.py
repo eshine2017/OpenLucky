@@ -67,6 +67,7 @@ def read_user_timezone(workspace_dir: str) -> str | None:
 
     return None
 
+
 _MAX_SECTION_CHARS = 4_000
 _MAX_TOTAL_CHARS = 10_000
 _MAX_FILE_BYTES = 256 * 1024  # 256 KB guard

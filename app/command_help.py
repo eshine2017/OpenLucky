@@ -25,7 +25,9 @@ class CommandSpec:
 
 COMMANDS: tuple[CommandSpec, ...] = (
     # Info
-    CommandSpec("!status", "!status", "Show current session status, task, dir, last summary", "info"),  # noqa: E501
+    CommandSpec(
+        "!status", "!status", "Show current session status, task, dir, last summary", "info"
+    ),  # noqa: E501
     CommandSpec("!soul", "!soul", "Show bot identity (SOUL.md)", "info"),
     CommandSpec("!whoami", "!whoami", "Show user profile (USER.md)", "info"),
     CommandSpec("!memory", "!memory", "Show long-term memory (MEMORY.md)", "info"),
@@ -41,6 +43,12 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "!provider",
         "!provider [name]",
         "View or switch AI provider (claude/gemini); starts new session",
+        "provider",
+    ),
+    CommandSpec(
+        "!model",
+        "!model [name]",
+        "View or switch model (opus/sonnet/haiku/fable or full ID); same session",
         "provider",
     ),
     # Schedule — parent entry used only for routing; sub-commands shown in help

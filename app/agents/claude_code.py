@@ -34,12 +34,14 @@ class ClaudeCodeAgent(SubprocessAgent):
         workspace_dir: str = "",
         second_brain_dir: str = "",
         images_dir: str = "",
+        default_model: str = "",
     ) -> None:
         super().__init__(work_dir)
         self.claude_bin = claude_bin
         self.workspace_dir = workspace_dir
         self.second_brain_dir = second_brain_dir
         self.images_dir = images_dir
+        self.default_model = default_model
         if second_brain_dir and not os.path.isdir(second_brain_dir):
             logger.warning(
                 "second_brain_dir %r does not exist; --add-dir will be skipped until it is created",
@@ -57,8 +59,9 @@ class ClaudeCodeAgent(SubprocessAgent):
         session_id: str | None = None,
         job_id: str | None = None,
         image_paths: list[str] | None = None,
+        model: str | None = None,
     ) -> RunResult:
-        cmd = self._build_command(prompt, session_id, image_paths=image_paths)
+        cmd = self._build_command(prompt, session_id, image_paths=image_paths, model=model)
         stdout_data, stderr_data, exit_code = self._spawn(cmd, cwd, job_id)
         parsed_session_id, summary = self._parse_stream_json(stdout_data)
         return RunResult(
@@ -78,6 +81,7 @@ class ClaudeCodeAgent(SubprocessAgent):
         prompt: str,
         session_id: str | None,
         image_paths: list[str] | None = None,
+        model: str | None = None,
     ) -> list[str]:
         cmd = [
             self.claude_bin,
@@ -89,6 +93,9 @@ class ClaudeCodeAgent(SubprocessAgent):
             "--permission-mode",
             "acceptEdits",
         ]
+        effective_model = model or self.default_model
+        if effective_model:
+            cmd += ["--model", effective_model]
         if self.workspace_dir:
             cmd += ["--add-dir", self.workspace_dir]
         if self.second_brain_dir and os.path.isdir(self.second_brain_dir):

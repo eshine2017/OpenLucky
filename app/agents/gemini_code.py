@@ -55,8 +55,9 @@ class GeminiAgent(SubprocessAgent):
         session_id: str | None = None,
         job_id: str | None = None,
         image_paths: list[str] | None = None,
+        model: str | None = None,
     ) -> RunResult:
-        cmd = self._build_command(prompt, session_id, image_paths=image_paths)
+        cmd = self._build_command(prompt, session_id, image_paths=image_paths, model=model)
 
         # Extract the effective session id embedded in the command so we can
         # use it as a fallback when the JSON output lacks one.
@@ -87,11 +88,13 @@ class GeminiAgent(SubprocessAgent):
         prompt: str,
         session_id: str | None,
         image_paths: list[str] | None = None,
+        model: str | None = None,
     ) -> list[str]:
         cmd = [self.gemini_bin]
 
-        if self.gemini_model:
-            cmd += ["-m", self.gemini_model]
+        effective_model = model or self.gemini_model
+        if effective_model:
+            cmd += ["-m", effective_model]
 
         cmd += [
             "--skip-trust",

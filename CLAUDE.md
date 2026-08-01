@@ -83,6 +83,11 @@ Key constraints:
 - `--verbose` is **required** with `-p` + `--output-format stream-json`; omitting it causes exit code 1.
 - `claude_bin` in settings must be an **absolute path** — systemd runs with a minimal PATH.
 - Session ID is parsed from the `{"type": "result", "session_id": "..."}` line in stdout.
+- Claude Code's built-in `/model` slash command is **REPL-only** — under `-p` it's just prompt
+  text and Claude replies "/model isn't available in this environment." Model selection must
+  go through the `--model` flag instead; that's what the `!model` command (`command_router.py`)
+  and `ClaudeCodeAgent.default_model` control, not the CLI's own slash command.
+- `--model` works with `--resume`: switching a chat's model does not require a new session.
 
 ## Session Decision Logic
 
@@ -104,6 +109,7 @@ Otherwise: new session.
 | `!reset` | Clear active_session_id binding (history kept) |
 | `!cwd /path` | Switch working directory, force new session |
 | `!task name` | Set active task name |
+| `!model [name]` | View or switch model (alias: opus/sonnet/haiku/fable, or full ID); same session — `/model` also works |
 | `!soul` | Show bot identity (SOUL.md) |
 | `!whoami` | Show user profile (USER.md) |
 | `!memory` | Show long-term memory (MEMORY.md) |
@@ -116,13 +122,18 @@ Otherwise: new session.
 
 ## Scheduler
 
-The scheduler is a generic cron runner. Each job is just `{id, name, cron_expr, tz, prompt}` — no domain coupling.
+The scheduler is a generic cron runner. Each job is just `{id, name, cron_expr, tz, prompt, model}` — no domain coupling.
+
+`model` is optional (empty string = fall back to whatever the chat's `!model` is set to). Pin it
+per-job when a scheduled task should always run on a specific model regardless of what the user
+is chatting with interactively — e.g. a cheap daily digest pinned to `haiku` while the user chats
+on `opus`.
 
 ### File split
 
 | File | Owner | Purpose |
 |---|---|---|
-| `<workspace>/cron.json` | Claude (editable) | Job specs — id, name, enabled, cron_expr, tz, prompt |
+| `<workspace>/cron.json` | Claude (editable) | Job specs — id, name, enabled, cron_expr, tz, prompt, model |
 | `<data>/cron-state.json` | Daemon (runtime) | Next-run timestamps and last-run results |
 
 The spec file is the single source of truth for *what* jobs run and *when*. The state file tracks *runtime* data. Claude can freely edit `cron.json`; the daemon owns `cron-state.json` and never writes `cron.json`.

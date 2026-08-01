@@ -58,6 +58,7 @@ class CronJob:
     cron_expr: str
     tz: str
     prompt: str
+    model: str = ""
     state: CronJobState = field(default_factory=CronJobState)
 
 
@@ -276,10 +277,7 @@ class Scheduler:
 
     def list_jobs(self) -> list[CronJob]:
         """Return jobs from spec with current state merged in."""
-        return [
-            replace(job, state=self._state.get(job.id, CronJobState()))
-            for job in self._spec
-        ]
+        return [replace(job, state=self._state.get(job.id, CronJobState())) for job in self._spec]
 
     def set_enabled(self, job_id: str, enabled: bool) -> bool:
         """Update enabled flag in spec file and in-memory."""
@@ -380,6 +378,7 @@ class Scheduler:
                     cron_expr=e.get("cron_expr", "0 8 * * *"),
                     tz=e.get("tz", "UTC"),
                     prompt=e.get("prompt", ""),
+                    model=e.get("model", ""),
                 )
                 for e in data.get("jobs", [])
             ]

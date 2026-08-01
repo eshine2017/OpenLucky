@@ -97,6 +97,21 @@ class TestBuildCommand:
         idx = cmd.index("-m")
         assert cmd[idx + 1] == "gemini-2.0-flash"
 
+    def test_per_call_model_overrides_ctor_default(self) -> None:
+        agent = _make_agent(gemini_model="gemini-2.0-flash")
+        cmd = agent._build_command("hi", session_id=None, model="gemini-2.5-pro")
+        assert "-m" in cmd
+        idx = cmd.index("-m")
+        assert cmd[idx + 1] == "gemini-2.5-pro"
+        assert cmd.count("-m") == 1
+
+    def test_per_call_model_without_ctor_default(self) -> None:
+        agent = _make_agent()
+        cmd = agent._build_command("hi", session_id=None, model="gemini-2.5-pro")
+        assert "-m" in cmd
+        idx = cmd.index("-m")
+        assert cmd[idx + 1] == "gemini-2.5-pro"
+
     def test_existing_workspace_dir_added(self, tmp_path) -> None:
         ws = str(tmp_path / "ws")
         os.makedirs(ws)
@@ -208,9 +223,7 @@ class TestRun:
         mock_popen.return_value = _make_popen_mock(stdout=payload, returncode=0)
 
         agent = _make_agent(work_dir=str(tmp_path))
-        result = agent.run(
-            prompt="hi", cwd=str(tmp_path), session_id="sid-existing", job_id="j2"
-        )
+        result = agent.run(prompt="hi", cwd=str(tmp_path), session_id="sid-existing", job_id="j2")
 
         cmd = mock_popen.call_args[0][0]
         assert "--resume" in cmd
@@ -249,6 +262,21 @@ class TestRun:
         result = agent.run(prompt="hi", cwd=str(tmp_path), session_id=None, job_id="j4")
 
         assert result.exit_code == 42
+
+    @patch("subprocess.Popen")
+    def test_run_passes_model_to_command(self, mock_popen, tmp_path) -> None:
+        mock_popen.return_value = _make_popen_mock(
+            stdout=json.dumps({"response": "ok"}), returncode=0
+        )
+
+        agent = _make_agent(work_dir=str(tmp_path))
+        agent.run(
+            prompt="hi", cwd=str(tmp_path), session_id=None, job_id="j5", model="gemini-2.5-pro"
+        )
+
+        cmd = mock_popen.call_args[0][0]
+        assert "-m" in cmd
+        assert cmd[cmd.index("-m") + 1] == "gemini-2.5-pro"
 
 
 class TestRealBinary:

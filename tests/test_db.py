@@ -243,3 +243,68 @@ class TestMigration:
         loaded = db.get_chat("201")
         assert loaded is not None
         assert loaded.bootstrap_session_id is None
+
+    def test_model_column_exists_after_init(self) -> None:
+        conn = db._get_conn()
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(chats)")
+        cols = [row[1] for row in cur.fetchall()]
+        assert "model" in cols
+
+    def test_model_persisted_and_read(self) -> None:
+        state = ChatState(telegram_chat_id="300", model="opus")
+        db.upsert_chat(state)
+
+        loaded = db.get_chat("300")
+        assert loaded is not None
+        assert loaded.model == "opus"
+
+    def test_model_nullable(self) -> None:
+        state = ChatState(telegram_chat_id="301", model=None)
+        db.upsert_chat(state)
+
+        loaded = db.get_chat("301")
+        assert loaded is not None
+        assert loaded.model is None
+
+    def test_model_survives_migration_on_old_db(self, tmp_path) -> None:
+        db_path = str(tmp_path / "old2.db")
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE chats (
+                telegram_chat_id TEXT PRIMARY KEY,
+                active_session_id TEXT,
+                active_task_name TEXT,
+                cwd TEXT,
+                status TEXT,
+                last_active_at TEXT,
+                last_summary TEXT,
+                force_new_next INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("INSERT INTO chats (telegram_chat_id) VALUES ('999')")
+        conn.commit()
+        conn.close()
+
+        db._conn = None
+        db.init(db_path)
+
+        cur = db._get_conn().cursor()
+        cur.execute("PRAGMA table_info(chats)")
+        cols = [row[1] for row in cur.fetchall()]
+        assert "model" in cols
+
+        loaded = db.get_chat("999")
+        assert loaded is not None
+        assert loaded.model is None
+
+    def test_get_most_recent_chat_includes_model(self) -> None:
+        state = ChatState(
+            telegram_chat_id="400", model="sonnet", last_active_at="2025-01-01T00:00:00Z"
+        )
+        db.upsert_chat(state)
+
+        loaded = db.get_most_recent_chat()
+        assert loaded is not None
+        assert loaded.model == "sonnet"

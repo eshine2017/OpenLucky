@@ -90,9 +90,7 @@ class TelegramBot:
         # Regular message → hand off to daemon (non-blocking, runs in a thread)
         self._daemon.on_message(chat_id, text)
 
-    async def _on_photo_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def _on_photo_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.message is None or update.effective_user is None:
             return
 

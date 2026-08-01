@@ -105,9 +105,7 @@ class Daemon:
             return
         self._dispatch_user_turn(chat_id, caption, image_paths)
 
-    def _dispatch_user_turn(
-        self, chat_id: str, text: str, image_paths: list[str]
-    ) -> None:
+    def _dispatch_user_turn(self, chat_id: str, text: str, image_paths: list[str]) -> None:
         with self._lock:
             active_job_id = self.running_locks.get(chat_id)
 
@@ -187,11 +185,16 @@ class Daemon:
         *,
         prompt: str,
         label: str,
+        model: str = "",
     ) -> str:
         """
         Dispatch a scheduled (non-interactive) job.
 
-        Finds the most recent chat automatically.
+        Finds the most recent chat automatically. `model`, when set, pins this run
+        to a specific model (from the job's cron.json entry) regardless of whatever
+        model the interactive chat is currently set to; empty falls back to the
+        chat's !model setting.
+
         Returns one of: "dispatched", "skipped:busy",
         "skipped:bootstrap", "skipped:no_chat".
 
@@ -243,6 +246,7 @@ class Daemon:
         thread = threading.Thread(
             target=self._run_scheduled_job_thread,
             args=(job, chat_state, prefixed_prompt, cwd, raw_output_path),
+            kwargs={"model": model},
             daemon=True,
             name=f"sched-{label}-{job_id[:8]}",
         )
@@ -257,6 +261,7 @@ class Daemon:
         prompt: str,
         cwd: str,
         raw_output_path: str,
+        model: str = "",
     ) -> None:
         chat_id = job.telegram_chat_id
 
@@ -270,6 +275,7 @@ class Daemon:
                 cwd=cwd,
                 session_id=None,
                 job_id=job.job_id,
+                model=model or chat_state.model,
             )
 
             os.makedirs(os.path.dirname(raw_output_path), exist_ok=True)
@@ -442,7 +448,10 @@ class Daemon:
             "  cron_expr   5-field cron expression\n"
             f"  tz          IANA timezone (pre-filled: {tz})\n"
             "  prompt      the full prompt to send when fired — self-contained,\n"
-            "              because SOUL/USER/MEMORY context is auto-prepended\n\n"
+            "              because SOUL/USER/MEMORY context is auto-prepended\n"
+            "  model       optional — alias (opus/sonnet/haiku/fable) or full model ID to\n"
+            "              pin this job to, regardless of the chat's current !model.\n"
+            '              Omit or leave "" to use whatever the chat is set to.\n\n'
             "Read the file (create if missing), append a new entry, write it back.\n"
             "If `tz` above is ASK_USER, ask the user for their timezone before writing.\n"
             "If anything else is unclear (timing, sources, frequency), ask the user.\n"
@@ -539,7 +548,10 @@ class Daemon:
             "  cron_expr   5-field cron expression\n"
             f"  tz          IANA timezone (user's timezone: {tz})\n"
             "  prompt      the full prompt to send when fired — self-contained,\n"
-            "              because SOUL/USER/MEMORY context is auto-prepended\n\n"
+            "              because SOUL/USER/MEMORY context is auto-prepended\n"
+            "  model       optional — alias (opus/sonnet/haiku/fable) or full model ID to\n"
+            "              pin this job to, regardless of the chat's current !model.\n"
+            '              Omit or leave "" to use whatever the chat is set to.\n\n'
             "Read the full cron.json file, find the entry with the matching id, "
             "apply only the requested changes, preserve all other fields, and write it back.\n"
             "Confirm with a one-line summary when done.\n\n"
@@ -549,9 +561,7 @@ class Daemon:
             return f"{prefix}\n\n---\n\n{task_instructions}"
         return task_instructions
 
-    def _handle_schedule_update(
-        self, chat_id: str, job_id: str, user_request: str
-    ) -> None:
+    def _handle_schedule_update(self, chat_id: str, job_id: str, user_request: str) -> None:
         """Handle the follow-up message after '!schedule update <id>'."""
         # Load current job JSON to embed in prompt
         current_job_json = "{}"
@@ -696,6 +706,7 @@ class Daemon:
                 session_id=decision.session_id,
                 job_id=job.job_id,
                 image_paths=job.image_paths,
+                model=chat_state.model,
             )
 
             # Persist raw output
