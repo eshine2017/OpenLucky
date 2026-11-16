@@ -1,0 +1,30 @@
+# Syrus configuration. Everything goes through `just` (see CLAUDE.md);
+# these mirror the `just ci` pipeline: lint -> typecheck -> test-cov.
+
+prepare:
+  - just venv
+
+grade:
+  - name: lint
+    description: |
+      Ruff lint over app/ and tests/. Rejects any lint violation; fix the
+      reported rule rather than suppressing it.
+    run: just lint
+    phases: [review, landing, ci]
+    timeout_minutes: 3
+
+  - name: typecheck
+    description: |
+      mypy in strict mode over app/. Rejects missing or incorrect type
+      annotations and any type error.
+    run: just typecheck
+    phases: [review, landing, ci]
+    timeout_minutes: 5
+
+  - name: test-cov
+    description: |
+      pytest with coverage over app/. Rejects failing tests and total
+      coverage below the 80% floor, so new behavior needs new tests.
+    run: just test-cov
+    phases: [review, landing, ci]
+    timeout_minutes: 10
