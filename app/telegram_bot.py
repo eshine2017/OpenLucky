@@ -51,7 +51,7 @@ class TelegramBot:
         self._app.add_handler(MessageHandler(filters.TEXT, self._on_text_message))
         self._app.add_handler(MessageHandler(filters.PHOTO, self._on_photo_message))
         logger.info("Starting Telegram bot (long-polling)…")
-        await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value]
+        await self._app.run_polling(drop_pending_updates=True)  # type: ignore[func-returns-value,misc]
 
     def get_application(self) -> _App:
         """Return the underlying Application (needed to send messages from threads)."""
