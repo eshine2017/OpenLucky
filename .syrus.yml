@@ -1,0 +1,9 @@
+# Syrus setup and checks for OpenLucky. Mirrors `just ci` (lint, typecheck,
+# test-cov); always go through `just` rather than calling tools directly.
+prepare:
+  - just venv
+
+graders:
+  lint: just lint
+  typecheck: just typecheck
+  test-cov: just test-cov
