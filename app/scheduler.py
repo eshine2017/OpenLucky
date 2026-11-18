@@ -76,7 +76,7 @@ def _compute_next_run(cron_expr: str, tz_name: str, now_ms: int) -> int | None:
     """
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-    from croniter import croniter  # type: ignore[import-untyped]
+    from croniter import croniter
 
     # Resolve timezone
     try:
