@@ -1,11 +1,11 @@
 """Tests for app.command_help — command metadata and help text renderer."""
 
 from app.command_help import (
-    COMMANDS,
-    TOP_LEVEL_NAMES,
     _CATEGORY_LABELS,
     _CATEGORY_ORDER,
     _SCHEDULE_SUBCMDS,
+    COMMANDS,
+    TOP_LEVEL_NAMES,
     render_help,
 )
 
@@ -29,7 +29,7 @@ class TestCommandSpecs:
 class TestTopLevelNames:
     def test_matches_names_in_commands(self) -> None:
         expected = frozenset(spec.name for spec in COMMANDS)
-        assert TOP_LEVEL_NAMES == expected
+        assert expected == TOP_LEVEL_NAMES
 
     def test_is_frozenset(self) -> None:
         assert isinstance(TOP_LEVEL_NAMES, frozenset)
