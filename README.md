@@ -1,11 +1,12 @@
 # openlucky
 
-A lightweight Telegram bot that controls [Claude Code](https://claude.ai/code) as an execution engine. Send a message to the bot, it runs Claude Code on your server, and returns the result back to you in the same chat.
+A lightweight Telegram bot that uses [Claude Code](https://claude.ai/code) or Gemini as an AI execution engine. Send a message to the bot, it runs the chosen provider on your server, and returns the result back to you in the same chat.
 
 ## Requirements
 
 - Python 3.12+
-- [Claude Code CLI](https://claude.ai/code) installed and authenticated
+- [Claude Code CLI](https://claude.ai/code) installed and authenticated (for the `claude` provider)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli) installed and authenticated (for the `gemini` provider, optional)
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - [`just`](https://github.com/casey/just) command runner (recommended)
 
@@ -27,9 +28,16 @@ work_dir: "/home/youruser/projects"
 claude_bin: "/home/youruser/.local/bin/claude"   # must be absolute path
 session_timeout_minutes: 30
 log_level: "INFO"
+
+# AI provider: "claude" (default) or "gemini"
+provider: "claude"
+
+# Gemini CLI (only needed when provider is "gemini" or you use !provider gemini)
+gemini_bin: "/home/youruser/.local/bin/gemini"   # must be absolute path for systemd
+gemini_model: ""   # e.g. "gemini-2.0-flash"; empty = CLI default
 ```
 
-> **Note:** `claude_bin` must be an absolute path. systemd runs with a minimal PATH and won't find `claude` by name alone.
+> **Note:** `claude_bin` and `gemini_bin` must be absolute paths. systemd runs with a minimal PATH and won't find the CLIs by name alone.
 
 Optionally, set `second_brain_dir` to give the bot read/write access to a notes directory (e.g. an Obsidian vault). Claude will be told to read and modify files there when you ask about notes, journal entries, or knowledge. Leave it empty (the default) to disable.
 
@@ -54,23 +62,44 @@ For a separate dev bot, copy `config/settings.dev.yaml.example` to `config/setti
 
 ## Commands
 
+**Info**
+
 | Command | Description |
 |---|---|
-| `!status` | Show current session, task, and working directory |
-| `!stop` | Cancel the running job |
-| `!new` | Force the next message to start a new session |
-| `!reset` | Clear the current session binding (history preserved) |
-| `!cwd /path/to/dir` | Change working directory (forces new session) |
-| `!task <name>` | Set a label for the current task |
-| `!soul` | Show bot identity |
-| `!whoami` | Show user profile |
-| `!memory` | Show long-term memory |
-| `!schedule list` | List all scheduled jobs |
-| `!schedule add` | Create a new scheduled job (conversational) |
-| `!schedule run <id>` | Run a job immediately |
-| `!schedule remove <id>` | Delete a scheduled job |
+| `!status` | Show current session status, task, dir, last summary |
+| `!soul` | Show bot identity (SOUL.md) |
+| `!whoami` | Show user profile (USER.md) |
+| `!memory` | Show long-term memory (MEMORY.md) |
+| `!help` | Show all available commands |
 
-Any other message is sent to Claude Code as a prompt. Consecutive messages within 30 minutes resume the same session automatically.
+**Session**
+
+| Command | Description |
+|---|---|
+| `!new` | Force next message to start a new session |
+| `!reset` | Clear active session binding (history kept) |
+| `!stop` | Cancel the currently running task |
+| `!cwd <path>` | Switch working directory (forces new session) |
+| `!task <name>` | Set active task name |
+
+**Provider**
+
+| Command | Description |
+|---|---|
+| `!provider [name]` | View or switch AI provider (claude/gemini); starts new session |
+| `!model [name]` | View or switch model (opus/sonnet/haiku/fable or full ID); same session |
+
+**Schedule**
+
+| Command | Description |
+|---|---|
+| `!schedule list` | List all cron jobs with next-run time and last status |
+| `!schedule add` | Start interactive flow to create a new cron job |
+| `!schedule run <id>` | Trigger a cron job immediately (off-schedule) |
+| `!schedule remove <id>` | Delete a cron job |
+| `!schedule update <id>` | Start interactive flow to modify an existing cron job |
+
+Any other message is sent to the active AI provider as a prompt. Consecutive messages within 30 minutes resume the same session automatically.
 
 ## Development
 
