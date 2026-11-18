@@ -1,0 +1,16 @@
+# `just` is not on PATH in the Syrus worker, so install it to ~/.local/bin
+# and call it by absolute path everywhere.
+prepare:
+  - test -x ~/.local/bin/just || curl -sSfL https://just.systems/install.sh | bash -s -- --to ~/.local/bin
+  - ~/.local/bin/just venv
+
+grade:
+  - name: lint
+    run: ~/.local/bin/just lint
+    phases: [review, landing, ci]
+  - name: typecheck
+    run: ~/.local/bin/just typecheck
+    phases: [review, landing, ci]
+  - name: test-cov
+    run: ~/.local/bin/just test-cov
+    phases: [review, landing, ci]
