@@ -21,4 +21,5 @@ asyncio_mode = "auto"
 markers = [
     "unit: fast, isolated unit tests",
     "integration: tests that exercise multiple components together",
+    "e2e: end-to-end tests that exercise the full daemon stack with fake CLI stubs",
 ]

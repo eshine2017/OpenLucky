@@ -57,10 +57,14 @@ test-file file: venv-check
 test-cov: venv-check
     {{python}} -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 
+# Run end-to-end tests (uses fake CLI stubs — no real claude/gemini binaries required)
+test-e2e: venv-check
+    {{python}} -m pytest -m e2e tests/e2e/ -v
+
 # ── CI ─────────────────────────────────────────────────────────────────────────
 
-# Run all checks: lint + typecheck + tests with coverage (mirrors CI)
-ci: lint typecheck test-cov
+# Run all checks: lint + typecheck + tests with coverage + e2e (mirrors CI)
+ci: lint typecheck test-cov test-e2e
 
 # ── Dev service ────────────────────────────────────────────────────────────────
 
