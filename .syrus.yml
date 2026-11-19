@@ -4,6 +4,11 @@ prepare:
   - test -x ~/.local/bin/just || curl -sSfL https://just.systems/install.sh | bash -s -- --to ~/.local/bin
   - ~/.local/bin/just venv
 
+preview:
+  command: python3 -m http.server $PORT --directory tests/e2e/artifacts/
+  port: 3001
+  health_check_path: /
+
 grade:
   - name: lint
     run: ~/.local/bin/just lint
