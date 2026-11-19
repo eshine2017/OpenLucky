@@ -21,15 +21,16 @@ def _wait_for_job(daemon, chat_id: str, timeout: float = 10.0) -> None:
 
 
 @pytest.mark.e2e
-def test_message_dispatches_claude_and_delivers_reply(e2e_daemon) -> None:  # type: ignore[no-untyped-def]
+@pytest.mark.record_transcript
+def test_message_dispatches_claude_and_delivers_reply(transcript_recorder) -> None:  # type: ignore[no-untyped-def]
     """
     One message → fake claude binary invoked → "stub reply" forwarded to send callback
     → job row in SQLite has status 'done'.
     """
-    daemon, send_mock = e2e_daemon
+    daemon, send_mock, recorder = transcript_recorder
     chat_id = "100"
 
-    daemon.on_message(chat_id, "hello from e2e test")
+    recorder.send_user(chat_id, "hello from e2e test")
     _wait_for_job(daemon, chat_id)
 
     # Assert the stub reply reached the send callback at some point.

@@ -35,9 +35,11 @@ _RESUMED_SESSION_ID = "recording-session-001"  # fixed ID emitted by recording_c
 
 
 @pytest.mark.e2e
+@pytest.mark.record_transcript
 def test_second_message_resumes_existing_session(
     recording_claude_bin: tuple[str, str],
     make_e2e_daemon,  # type: ignore[no-untyped-def]
+    make_transcript_recorder,  # type: ignore[no-untyped-def]
 ) -> None:
     """
     Message A → new session, session_id captured from stub output.
@@ -45,16 +47,17 @@ def test_second_message_resumes_existing_session(
     """
     rec_bin, argv_log = recording_claude_bin
     daemon, send_mock, _settings = make_e2e_daemon(claude_bin=rec_bin, seed_workspace=True)
+    recorder = make_transcript_recorder(daemon, send_mock)
 
     chat_id = "700"
 
     # First message: starts a new session.
-    daemon.on_message(chat_id, "first task: write a hello world")
+    recorder.send_user(chat_id, "first task: write a hello world")
     _wait_for_job(daemon, chat_id)
 
     # Second message: should resume the session established by the first job.
     # Using a neutral message that does not trigger new-task heuristics.
-    daemon.on_message(chat_id, "also add a test for that")
+    recorder.send_user(chat_id, "also add a test for that")
     _wait_for_job(daemon, chat_id)
 
     # Read the argv log — one entry per subprocess invocation.

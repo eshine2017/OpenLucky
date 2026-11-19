@@ -23,4 +23,5 @@ markers = [
     "integration: tests that exercise multiple components together",
     "e2e: end-to-end tests that exercise the full daemon stack with fake CLI stubs",
     "e2e_live: opt-in live smoke tests against real claude/gemini binaries (requires OPENLUCKY_E2E_LIVE=1)",
+    "record_transcript: render a Telegram-style HTML transcript of the test's chat exchange",
 ]
