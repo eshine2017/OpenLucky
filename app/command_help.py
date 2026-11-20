@@ -6,12 +6,13 @@ from dataclasses import dataclass
 
 # Characters reserved for the usage/command column before summary aligns
 _USAGE_COL_WIDTH = 28
-_CATEGORY_ORDER = ("info", "session", "provider", "schedule")
+_CATEGORY_ORDER = ("info", "session", "provider", "schedule", "diagnostics")
 _CATEGORY_LABELS = {
     "info": "Info",
     "session": "Session",
     "provider": "Provider",
     "schedule": "Schedule",
+    "diagnostics": "Diagnostics",
 }
 
 
@@ -53,6 +54,8 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     # Schedule — parent entry used only for routing; sub-commands shown in help
     CommandSpec("!schedule", "!schedule <subcmd>", "Manage cron jobs", "schedule"),
+    # Diagnostics
+    CommandSpec("!ping", "!ping", "Reply pong — confirms the bot is reachable", "diagnostics"),
 )
 
 # Top-level command names for routing derivation (sub-commands are display-only)

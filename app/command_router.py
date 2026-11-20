@@ -118,6 +118,8 @@ class CommandRouter:
             return self._handle_model(chat_id, arg)
         if cmd == "!schedule":
             return self._handle_schedule(chat_id, arg)
+        if cmd == "!ping":
+            return "pong"
         if cmd == "!help":
             return render_help()
 
