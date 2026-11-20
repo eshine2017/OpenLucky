@@ -20,6 +20,7 @@ from app import formatter
 from app.agents.base import BaseAgent
 from app.agents.registry import AgentRegistry
 from app.bootstrap import BootstrapChecker, BootstrapState, BootstrapStatus, is_complete_signal
+from app.command_router import CommandRouter
 from app.context_builder import ContextBuilder
 from app.models import ChatState, ChatStatus, Job, JobStatus, RunResult, SessionDecision
 from app.session_manager import SessionManager
@@ -45,6 +46,7 @@ class Daemon:
         bootstrap_checker: BootstrapChecker | None = None,
         cron_spec_path: str = "",
         registry: AgentRegistry | None = None,
+        command_router: CommandRouter | None = None,
     ) -> None:
         self._db = db_module
         self._agent = agent
@@ -56,6 +58,7 @@ class Daemon:
         self._context_builder = context_builder
         self._bootstrap_checker = bootstrap_checker
         self._cron_spec_path = cron_spec_path
+        self._command_router = command_router
 
         # chat_id → job_id for currently running jobs
         self.running_locks: dict[str, str] = {}
@@ -89,6 +92,14 @@ class Daemon:
         if pending and pending.startswith("schedule_update:"):
             job_id = pending.split(":", 1)[1]
             self._handle_schedule_update(chat_id, job_id, text)
+            return
+
+        # Route commands through the command router when one is wired in.
+        # (In production, TelegramBot intercepts commands before they reach here;
+        # this path is used by the e2e test harness which calls on_message directly.)
+        if self._command_router is not None and self._command_router.looks_like_command(text):
+            response = self._command_router.handle(chat_id, text)
+            self._send(chat_id, response)
             return
 
         self._dispatch_user_turn(chat_id, text, [])

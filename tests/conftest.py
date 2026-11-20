@@ -347,6 +347,7 @@ def e2e_daemon(e2e_config, seeded_workspace) -> tuple:  # type: ignore[no-untype
     from app.agents.gemini_code import GeminiAgent
     from app.agents.registry import AgentRegistry
     from app.bootstrap import BootstrapChecker
+    from app.command_router import CommandRouter
     from app.context_builder import ContextBuilder
     from app.daemon import Daemon
     from app.session_manager import SessionManager
@@ -390,6 +391,13 @@ def e2e_daemon(e2e_config, seeded_workspace) -> tuple:  # type: ignore[no-untype
 
     cron_spec_path = str(Path(settings.workspace_dir) / "cron.json")
 
+    command_router = CommandRouter(
+        db=db,
+        registry=registry,
+        context_builder=context_builder,
+        bootstrap_checker=bootstrap_checker,
+    )
+
     daemon = Daemon(
         db_module=db,
         agent=claude_agent,
@@ -401,6 +409,7 @@ def e2e_daemon(e2e_config, seeded_workspace) -> tuple:  # type: ignore[no-untype
         bootstrap_checker=bootstrap_checker,
         cron_spec_path=cron_spec_path,
         registry=registry,
+        command_router=command_router,
     )
 
     return daemon, send_mock
