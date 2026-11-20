@@ -14,3 +14,7 @@ grade:
   - name: test-cov
     run: ~/.local/bin/just test-cov
     phases: [review, landing, ci]
+
+preview:
+  start: ~/.local/bin/just test-e2e && cd tests/e2e/artifacts && python3 -m http.server $PORT
+  health_check: /index.html
