@@ -6,12 +6,13 @@ from dataclasses import dataclass
 
 # Characters reserved for the usage/command column before summary aligns
 _USAGE_COL_WIDTH = 28
-_CATEGORY_ORDER = ("info", "session", "provider", "schedule")
+_CATEGORY_ORDER = ("info", "session", "provider", "schedule", "diagnostics")
 _CATEGORY_LABELS = {
     "info": "Info",
     "session": "Session",
     "provider": "Provider",
     "schedule": "Schedule",
+    "diagnostics": "Diagnostics",
 }
 
 
@@ -38,6 +39,8 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("!stop", "!stop", "Cancel the currently running task", "session"),
     CommandSpec("!cwd", "!cwd <path>", "Switch working directory (forces new session)", "session"),
     CommandSpec("!task", "!task <name>", "Set active task name", "session"),
+    # Diagnostics
+    CommandSpec("!version", "!version", "Show openlucky version", "diagnostics"),
     # Provider
     CommandSpec(
         "!provider",

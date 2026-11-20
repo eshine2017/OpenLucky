@@ -120,6 +120,8 @@ class CommandRouter:
             return self._handle_schedule(chat_id, arg)
         if cmd == "!help":
             return render_help()
+        if cmd == "!version":
+            return "openlucky v0.1.0"
 
         return render_help(unknown=raw_cmd)
 

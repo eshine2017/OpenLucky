@@ -755,6 +755,12 @@ class TestModelCommand:
         mock_db.upsert_chat.assert_not_called()
 
 
+class TestVersionCommand:
+    def test_returns_hardcoded_version_string(self, router) -> None:
+        result = router.handle("1", "!version")
+        assert result == "openlucky v0.1.0"
+
+
 class TestCommandSpecDriftGuard:
     def test_every_top_level_command_in_routing_set_has_spec(self) -> None:
         from app.command_help import COMMANDS
