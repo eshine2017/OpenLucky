@@ -15,15 +15,3 @@ grade:
     run: ~/.local/bin/just test-cov
     phases: [review, landing, ci]
 
-preview:
-  start: |
-    mkdir -p tests/e2e/artifacts
-    if [ ! -f tests/e2e/artifacts/index.html ]; then
-      ~/.local/bin/just test-e2e || true
-    fi
-    if [ ! -f tests/e2e/artifacts/index.html ]; then
-      echo '<!DOCTYPE html><html><body><h1>No transcripts available</h1><p>Run <code>just test-e2e</code> to generate transcript HTML.</p></body></html>' > tests/e2e/artifacts/index.html
-    fi
-    cd tests/e2e/artifacts
-    exec python3 -m http.server "$PORT"
-  health_check: /index.html
