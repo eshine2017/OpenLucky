@@ -755,6 +755,15 @@ class TestModelCommand:
         mock_db.upsert_chat.assert_not_called()
 
 
+class TestPingCommand:
+    def test_ping_returns_pong(self, router) -> None:
+        result = router.handle("1", "!ping")
+        assert result == "pong"
+
+    def test_ping_is_recognised_as_command(self, router) -> None:
+        assert router.is_command("!ping") is True
+
+
 class TestCommandSpecDriftGuard:
     def test_every_top_level_command_in_routing_set_has_spec(self) -> None:
         from app.command_help import COMMANDS
